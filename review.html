@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>iFood PDV Sync — Revisão</title>
+<link rel="stylesheet" href="review.css" />
+</head>
+<body>
+  <header id="rv-header">
+    <div>
+      <h1>iFood PDV Sync — Revisão</h1>
+      <p id="rv-meta" class="rv-muted">Carregando...</p>
+    </div>
+    <div id="rv-actions">
+      <button id="rv-btn-export" class="rv-btn-safe">Exportar CSV</button>
+      <div id="rv-apply-wrap">
+        <button id="rv-btn-apply" disabled>⚠️ Aplicar selecionados</button>
+        <div class="rv-apply-hint">escreve no cardápio do iFood</div>
+      </div>
+    </div>
+  </header>
+
+  <div id="rv-summary-bar"></div>
+
+  <nav id="rv-tabs">
+    <button type="button" class="rv-tab-btn is-active" data-tab="complemento">Complementos</button>
+    <button type="button" class="rv-tab-btn" data-tab="produto">Produtos pai 🍕</button>
+    <button type="button" class="rv-tab-btn" data-tab="saipos">Criar no Saipos 🆕</button>
+  </nav>
+
+  <main id="rv-main">
+    <p id="rv-empty" class="rv-muted" style="display:none;">
+      Nenhum dado encontrado. Volte para a aba do Portal iFood, abra o popup da extensão,
+      carregue a planilha e clique em "Verificar cardápio e sugerir códigos".
+    </p>
+  </main>
+
+  <div id="rv-final-summary" style="display:none;"></div>
+
+  <script src="review.js"></script>
+</body>
+</html>

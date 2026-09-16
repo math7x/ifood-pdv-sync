@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "iFood PDV Sync (Saipos)",
+  "version": "1.2.21",
+  "description": "Casa os códigos de complemento da planilha Saipos com o cardápio PDV do Portal iFood e preenche os campos x.XXXXX automaticamente, com revisão numa aba separada antes de aplicar.",
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "unlimitedStorage"],
+  "host_permissions": ["https://portal.ifood.com.br/*", "https://conta.saipos.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "iFood PDV Sync"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://portal.ifood.com.br/menu/list/pdv*"],
+      "js": ["lib/xlsx.core.min.js", "matching.js", "content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://conta.saipos.com/*"],
+      "js": ["saipos.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
