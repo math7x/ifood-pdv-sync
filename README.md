@@ -5,6 +5,16 @@ casa cada complemento com a opção correspondente no cardápio PDV do Portal do
 Parceiro iFood, e preenche os campos `x.XXXXX` — com uma etapa de revisão
 antes de qualquer escrita no seu cardápio.
 
+## Visão técnica
+
+- leitura local de planilhas XLSX;
+- normalização e correspondência de nomes entre plataformas;
+- tela de revisão antes da aplicação dos códigos;
+- persistência do progresso no navegador;
+- automação restrita aos portais Saipos e iFood.
+
+Tecnologias principais: JavaScript, HTML, CSS, SheetJS e Chrome Extensions API.
+
 ## Como instalar (modo desenvolvedor)
 
 1. Extraia esta pasta em algum lugar do seu computador (ex: `Documentos/ifood-pdv-sync`).
