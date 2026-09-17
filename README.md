@@ -11,6 +11,14 @@ eliminar a conferência humana.
 
 > Projeto independente, sem vínculo oficial com Saipos, iFood ou 99Food.
 
+## Problema que resolve
+
+O mesmo cardápio precisa manter códigos de integração coerentes em plataformas diferentes. Quando produtos e complementos têm nomes abreviados, tamanhos ou descrições diferentes, localizar e preencher cada Código PDV manualmente leva tempo e pode ligar o item errado ao cadastro da Saipos.
+
+## Solução desenvolvida
+
+A extensão lê a planilha da Saipos, percorre os cardápios do iFood ou do 99Food e compara os registros por nome, categoria, tamanho e volume. Em vez de alterar tudo automaticamente, ela separa as sugestões por nível de confiança e oferece uma etapa de revisão. Isso reduz o trabalho repetitivo sem abrir mão do controle antes de uma alteração em lote.
+
 ## O que a extensão faz
 
 | Plataforma | Leitura e comparação | Alteração assistida |
