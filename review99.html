@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>PDV Sync — Revisão 99Food</title>
+<link rel="stylesheet" href="review.css" />
+</head>
+<body>
+  <header id="rv-header">
+    <div>
+      <h1>PDV Sync — Revisão 99Food</h1>
+      <p id="rv-meta" class="rv-muted">Carregando...</p>
+    </div>
+    <div id="rv-actions">
+      <button id="rv-btn-select-all" class="rv-btn-safe" disabled>Selecionar todos</button>
+      <button id="rv-btn-export" class="rv-btn-safe">Exportar CSV</button>
+      <div id="rv-apply-wrap">
+        <button id="rv-btn-apply" disabled>⚠️ Aplicar selecionados</button>
+        <div class="rv-apply-hint">pesquisa o produto e salva o Código PDV na aba Itens</div>
+      </div>
+    </div>
+  </header>
+  <div id="rv-summary-bar"></div>
+  <main id="rv-main">
+    <p id="rv-empty" class="rv-muted" style="display:none;">Nenhum resultado encontrado. Volte ao Cardápio online do 99Food e rode a extensão novamente.</p>
+  </main>
+  <div id="rv-final-summary" style="display:none;"></div>
+  <script src="review99.js"></script>
+</body>
+</html>

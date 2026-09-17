@@ -1,19 +1,29 @@
-# iFood PDV Sync (Saipos)
+# PDV Sync (Saipos → iFood e 99Food)
 
 Extensão para o Chrome que lê a planilha de "Códigos de integração" da Saipos,
 casa cada complemento com a opção correspondente no cardápio PDV do Portal do
 Parceiro iFood, e preenche os campos `x.XXXXX` — com uma etapa de revisão
 antes de qualquer escrita no seu cardápio.
 
-## Visão técnica
+Também funciona no **Cardápio online do 99Food** para produtos: percorre as
+categorias, compara cada nome com as linhas `PRATO` da mesma planilha e, após
+revisão, usa a edição rápida da coluna **Código PDV** na aba **Itens**.
+Grupos de itens adicionais do 99Food ainda não são alterados.
 
-- leitura local de planilhas XLSX;
-- normalização e correspondência de nomes entre plataformas;
-- tela de revisão antes da aplicação dos códigos;
-- persistência do progresso no navegador;
-- automação restrita aos portais Saipos e iFood.
+## Como usar no 99Food
 
-Tecnologias principais: JavaScript, HTML, CSS, SheetJS e Chrome Extensions API.
+1. Abra `https://merchant.99app.com/pt-BR/manager/micro-merchandish/merchant-item/menu?tab=store-menu`.
+2. Abra a extensão, selecione a planilha Saipos e clique em **Verificar cardápio e sugerir códigos**.
+3. Aguarde a leitura automática de todas as categorias.
+4. Na aba de revisão, confira as sugestões. As de alta confiança já vêm marcadas. O botão **Selecionar todos** do topo controla todas as seções; a caixa do cabeçalho da primeira coluna controla somente sua própria seção (alta, média ou baixa). Produtos com volumes diferentes, como 350 ml e 2 litros, não são associados entre si.
+   Em qualquer linha, o campo **Buscar prato ou código Saipos** permite pesquisar manualmente entre todos os pratos ativos da planilha; ao escolher um resultado, a linha é atualizada e marcada automaticamente.
+5. Clique em **Aplicar selecionados** e confirme. Não use nem feche a aba do 99Food durante o lote.
+6. A extensão abre a aba **Itens**, pesquisa cada produto por nome e categoria e salva o Código PDV diretamente na lista. Falhas são informadas linha a linha sem travar o restante do lote.
+
+Antes de abrir a revisão, o 99Food também tem suas páginas da aba **Itens**
+lidas. Produtos com um Código PDV já coerente com o prato da planilha ficam
+ocultos. Códigos preenchidos que apontam para um prato incompatível, ou que
+não existem na planilha ativa, continuam visíveis para correção.
 
 ## Como instalar (modo desenvolvedor)
 
@@ -47,11 +57,8 @@ Tecnologias principais: JavaScript, HTML, CSS, SheetJS e Chrome Extensions API.
      precisar de ação.
    - **Prontos para aplicar (alta confiança)**: já vêm marcados.
    - **Para revisar (confiança média)** e **Sem correspondência confiável**:
-     não vêm marcados. O complemento do iFood permanece fixo; no menu da
-     coluna **Complemento Saipos sugerido**, escolha qualquer linha ativa do
-     tipo `COMPLEMENTO` vinculada ao código pai desse produto no Excel. A
-     lista inclui inclusive complementos já usados em outros casamentos.
-     Depois, marque a caixinha ou ignore.
+     não vêm marcados — escolha manualmente a opção certa num menu suspenso,
+     marque a caixinha, ou ignore.
    - Linhas da planilha com a coluna **"Inativo" = Inativo são descartadas
      antes de qualquer comparação** (isso também deixa a lista de "sem
      correspondência" bem menor).
@@ -60,25 +67,6 @@ Tecnologias principais: JavaScript, HTML, CSS, SheetJS e Chrome Extensions API.
    - **"Aplicar selecionados"** manda os campos marcados de volta para a aba
      do iFood, que é quem realmente escreve nos campos. O resultado
      (sucesso/falha) aparece linha a linha, e um resumo final some no rodapé.
-     Após preencher cada campo, a extensão força a saída de foco como um
-     clique fora. O aviso verde **"PDV atualizado com sucesso"** é a
-     confirmação preferencial; quando o portal não o exibe, mas mantém o
-     valor sem erro e sem marcar o campo como inválido, a extensão também
-     considera a gravação aceita e informa isso na própria linha.
-     Os campos são reencontrados pelos identificadores estáveis do item,
-     mesmo que o portal descarte o identificador temporário após a rolagem.
-     O preenchimento seleciona o conteúdo do campo, insere o novo código e
-    move o foco para outro campo PDV real para confirmar o `onBlur`; a busca
-    do iFood fica como alternativa quando só existe um campo na página.
-   - Na aba **Produtos pai**, a busca por nome ou código consulta todas as
-     linhas ativas do tipo `PRATO` da planilha, sem limite de quantidade.
-     É possível marcar a linha primeiro e depois colar o código PDV; quando
-     o código existe no Excel, ele é reconhecido imediatamente.
-     Se o código pai atual já existe em uma linha ativa da planilha, ele tem
-     prioridade sobre diferenças de nome e aparece como **PDV já correto**,
-     sem botão de aplicação porque não há mudança a realizar.
-     Se o produto escolhido tiver o mesmo código pai que já está no iFood,
-     ele é classificado como correto e nenhuma alteração é sugerida.
 8. Confira o cardápio depois de aplicar, como faria com qualquer edição em
    massa.
 
@@ -109,7 +97,9 @@ revisão), então o Chrome pode pedir para você confirmar a permissão de novo 
 
 ## Limitações e pontos de atenção
 
-- A extensão só funciona na página `portal.ifood.com.br/menu/list/pdv`.
+- No iFood, a extensão funciona na página `portal.ifood.com.br/menu/list/pdv`.
+- No 99Food, a leitura deve começar na página `merchant-item/menu?tab=store-menu`.
+- No 99Food, esta versão preenche apenas o Código PDV dos produtos; não altera grupos de itens adicionais.
 - Ela lê a estrutura visual da página atual do portal. Se a iFood atualizar o
   layout do PDV, os seletores no topo de `content.js` (constante
   `IFPS_CONFIG`) podem precisar de ajuste.

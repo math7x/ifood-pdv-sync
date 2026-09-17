@@ -73,13 +73,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'IFPS_APPLY_ROWS') {
-    resolveTargetTab(msg.targetTabId)
+    resolveTargetTab(msg.targetTabId, msg.platform)
       .then((tabId) => {
         if (!tabId) {
           sendResponse({
             ok: false,
-            error:
-              'não encontrei nenhuma aba aberta do Portal iFood na tela Cardápio > PDV. Abra essa tela (ela pode ter sido fechada, ou trocada por uma aba nova) e clique em "Aplicar selecionados" de novo.',
+            error: msg.platform === '99food'
+              ? 'não encontrei nenhuma aba aberta do 99Food. Abra o Cardápio online e clique em "Aplicar selecionados" de novo.'
+              : 'não encontrei nenhuma aba aberta do Portal iFood na tela Cardápio > PDV. Abra essa tela (ela pode ter sido fechada, ou trocada por uma aba nova) e clique em "Aplicar selecionados" de novo.',
           });
           return;
         }
@@ -99,6 +100,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function handleOpenReview(msg, sender) {
   const sourceTabId = sender.tab ? sender.tab.id : null;
+  const platform = msg.matches && msg.matches.platform === '99food' ? '99food' : 'ifood';
+  const reviewUrl = chrome.runtime.getURL(platform === '99food' ? 'review99.html' : 'review.html');
 
   await chrome.storage.local.set({
     ifpsMatches: msg.matches,
@@ -109,13 +112,14 @@ async function handleOpenReview(msg, sender) {
   const existingTab = ifpsReviewTabId !== null ? await getTabSafe(ifpsReviewTabId) : null;
 
   if (existingTab) {
-    await chrome.tabs.update(ifpsReviewTabId, { active: true });
+    const sameReview = existingTab.url && existingTab.url.startsWith(reviewUrl);
+    await chrome.tabs.update(ifpsReviewTabId, { active: true, ...(sameReview ? {} : { url: reviewUrl }) });
     // review.html é uma página da própria extensão (não um content script),
     // então falamos com ela via runtime, não via tabs.
-    chrome.runtime.sendMessage({ type: 'IFPS_RESULTS_UPDATED' }).catch(() => {});
+    if (sameReview) chrome.runtime.sendMessage({ type: 'IFPS_RESULTS_UPDATED' }).catch(() => {});
   } else {
     ifpsReviewTabId = null;
-    const tab = await chrome.tabs.create({ url: chrome.runtime.getURL('review.html') });
+    const tab = await chrome.tabs.create({ url: reviewUrl });
     ifpsReviewTabId = tab.id;
   }
 }
@@ -128,8 +132,11 @@ async function handleOpenReview(msg, sender) {
 // provavelmente a causa de "parece que não tem acesso ao portal iFood".
 // Agora sempre procuramos, na hora de aplicar, qual aba do PDV está
 // realmente aberta AGORA, em vez de confiar só no id antigo.
-async function resolveTargetTab(cachedTabId) {
-  const tabs = await chrome.tabs.query({ url: 'https://portal.ifood.com.br/menu/list/pdv*' });
+async function resolveTargetTab(cachedTabId, platform) {
+  const urlPattern = platform === '99food'
+    ? 'https://merchant.99app.com/pt-BR/manager/micro-merchandish/merchant-item/*'
+    : 'https://portal.ifood.com.br/menu/list/pdv*';
+  const tabs = await chrome.tabs.query({ url: urlPattern });
   if (tabs.length > 0) {
     // Se a aba original ainda estiver entre as abertas, prioriza ela —
     // assim não pula pra outra aba do PDV à toa quando a certa ainda existe.

@@ -20,26 +20,6 @@ function ifpsParseComplementoField(raw) {
   const parts = original.split('-').map((p) => p.trim()).filter((p) => p.length > 0);
   if (parts.length === 0) return { core: '', hint: '', original };
 
-  // Algumas planilhas envolvem o nome específico do complemento com o nome
-  // do produto pai, repetindo esse produto no começo e no fim:
-  // "CROSTATA - AFOGA BORDA - MOLHO DE TOMATE - CROSTATA".
-  // O último pedaço, nesse formato, NÃO é o complemento — é só o mesmo
-  // invólucro do começo. Sem remover essa repetição, tanto "Molho de
-  // tomate" quanto "Pesto de manjericão" viravam core="CROSTATA", ficavam
-  // empatados com score zero e podiam ser associados às opções invertidas.
-  if (parts.length >= 3) {
-    const wrapperKey = (s) =>
-      ifpsStripAccents(String(s || ''))
-        .toUpperCase()
-        .replace(/\*/g, ' ')
-        .replace(/[^A-Z0-9]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    if (wrapperKey(parts[0]) && wrapperKey(parts[0]) === wrapperKey(parts[parts.length - 1])) {
-      parts.pop();
-    }
-  }
-
   let core = parts[parts.length - 1];
   let hintParts = parts.slice(0, -1);
 
@@ -243,15 +223,6 @@ function ifpsCategoryOf(text) {
   return '';
 }
 
-// Categorias reconhecidas e diferentes representam uma incompatibilidade
-// objetiva, não apenas um nome pouco parecido. Usado pelo pareamento para
-// impedir sugestões como uma BEBIDA ocupando o campo de uma BORDA.
-function ifpsCategoriesConflict(saiposParsed, groupHeading) {
-  const saiposCat = ifpsCategoryOf(saiposParsed && saiposParsed.hint);
-  const ifoodCat = ifpsCategoryOf(groupHeading);
-  return !!saiposCat && !!ifoodCat && saiposCat !== ifoodCat;
-}
-
 // Detecta volume/capacidade tipo "600ml", "2l", "1,5 L", "2 litros" — normaliza
 // tudo pra MILILITROS pra dar pra comparar mesmo quando um lado escreve "2L"
 // e o outro "2000ml". Roda sobre o texto ORIGINAL (antes de ifpsNormalize
@@ -277,8 +248,7 @@ function ifpsExtractVolumeMl(text) {
 // outro. O que sobra depois de tirar essas é o nome que realmente importa
 // (ex: "GUARANA", "SODA", "COCA", "LARANJA").
 const IFPS_GENERIC_WORDS = new Set([
-  'REFRIGERANTE', 'REFRI', 'ANTARCTICA', 'CERVEJA', 'GELADA', 'BEBIDA', 'BEBIDAS',
-  'LATA', 'GARRAFA', 'PET', 'LITROS', 'LITRO', 'ML', 'COM', 'SEM', 'DE', 'DA', 'DO', 'L',
+  'REFRIGERANTE', 'REFRI', 'ANTARCTICA', 'LATA', 'GARRAFA', 'PET', 'LITROS', 'LITRO', 'ML', 'COM', 'SEM', 'DE', 'DA', 'DO', 'L',
 ]);
 
 function ifpsSignificantWords(text) {
@@ -307,21 +277,6 @@ function ifpsScoreMatch(saiposParsed, ifoodOptionName, groupHeading, itemSizeTag
     const hintScore = ifpsDiceCoefficient(saiposParsed.hint, groupHeading);
     score += hintScore * 0.5;
   }
-
-  // No iFood, a massa/borda padrão às vezes aparece apenas como
-  // "Borda > Tradicional". Na Saipos, a mesma opção costuma ter um nome
-  // descritivo como "Massa Clássica Italiana de Fermentação Lenta" — quase
-  // nenhuma palavra coincide literalmente, embora o significado seja o
-  // mesmo. Quando grupo, opção e descrição trazem esses sinais específicos,
-  // reforçamos o casamento sem aplicar a regra a outros grupos.
-  const normOption = ifpsNormalize(ifoodOptionName);
-  const normSaiposCrust = ifpsNormalize(`${saiposParsed.hint || ''} ${matchCore}`);
-  const semanticTraditionalCrust =
-    ifoodCat === 'borda' &&
-    /\b(TRADICIONAL|CLASSICA|PADRAO)\b/.test(normOption) &&
-    /\b(MASSA|BORDA)\b/.test(normSaiposCrust) &&
-    /\b(TRADICIONAL|CLASSICA|ITALIANA|FERMENTACAO)\b/.test(normSaiposCrust);
-  if (semanticTraditionalCrust) score += 1.25;
 
   // Desempate por tamanho: quando o nome do complemento na Saipos e o nome
   // da opção no iFood têm cada um sua marca de tamanho (Pq/Gg/Gr/...), mas
@@ -388,83 +343,14 @@ function ifpsDisplayScore(score) {
   return Math.max(0, Math.min(score, 1));
 }
 
-// Muitas linhas Tipo=PRATO da planilha usam a convenção "CATEGORIA - NOME"
-// na Descrição (ex: "AFOGA BORDA - PESTO AZEITONA PRETA") — o prefixo antes
-// do primeiro " - " costuma ser exatamente o nome da CATEGORIA do item no
-// iFood (aqui, "Afoga Borda"). ifpsScoreProduto sozinha não sabe disso: ela
-// penaliza cada palavra desse prefixo como "sobra" (extraWords, ver abaixo),
-// o que derruba bastante o score do prato CERTO — às vezes o bastante pra
-// perder pra outra linha da planilha com nome mais curto/genérico (sem
-// relação nenhuma com a categoria do item) que por acaso bate melhor por
-// texto puro. Bug real visto ao vivo: "Pesto de Azeitona" (categoria "Afoga
-// Borda" no iFood), já com o código pai certo apontando pra essa linha, foi
-// sugerido pra trocar por outro "Pesto de Azeitona" da planilha sem prefixo
-// de categoria nenhum, só porque o nome dele "batia" mais limpo. Essas duas
-// funções detectam esse prefixo e comparam com a categoria real do item no
-// iFood, como um sinal à parte — mais confiável que semelhança de texto
-// pura, porque é uma convenção de nomenclatura intencional da planilha, não
-// coincidência.
-function ifpsParsePratoDescricao(desc) {
-  const original = String(desc || '').trim();
-  const idx = original.indexOf(' - ');
-  if (idx === -1) return { prefix: '', core: original };
-  return { prefix: original.slice(0, idx).trim(), core: original.slice(idx + 3).trim() };
-}
-
-function ifpsCategoriaMatchesPrefix(categoryName, prefix) {
-  const cat = String(categoryName || '').trim();
-  const pfx = String(prefix || '').trim();
-  if (!cat || !pfx) return false;
-  const score = ifpsDiceCoefficient(cat, pfx) + ifpsContainmentBonus(cat, pfx);
-  return score >= 0.6;
-}
-
-// Token de volume/embalagem já normalizado (ex: "350ML", "2L") — usado só
-// pra TIRAR esse token da comparação de "palavra que sobra" abaixo, porque o
-// volume já é comparado à parte (ver ifpsExtractVolumeMl mais abaixo nessa
-// função). Sem isso, "350 ml" (item, com espaço — o "350" e o "ML" viram
-// duas palavras separadas depois de normalizar, e "350" sozinho é só dígito,
-// então é descartado por ifpsSignificantWords) contra "350ML" (planilha, sem
-// espaço — sobrevive como UMA palavra "de conteúdo") conta como palavra
-// "extra" de cada lado (a peça de volume em si de um lado, e nenhuma peça
-// equivalente sobrevivendo do outro) — um bug real visto ao vivo: um item
-// "Coca-Cola - Zero Açúcar 350 ml" com o código pai JÁ CERTO apontando pra
-// "COCA-COLA ZERO - LATA 350ML" não foi reconhecido como correto porque essa
-// dupla-penalização (mais a diferença normal de "AÇUCAR" x "LATA") derrubou
-// o score de ~0.71 (só pelo texto) pra quase zero.
-const IFPS_VOLUME_WORD_RE = /^\d+(ML|LT|L)$/;
-
-// Conflitos que a semelhança textual não pode anular quando validamos um
-// código pai já preenchido. Exemplo: "Pesto de manjericão" não pode ser
-// considerado o mesmo produto que "PIZZA GR PESTO DE MANJERICÃO" apenas
-// porque compartilham o sabor. Tamanho e volume diferentes também impedem
-// a confirmação automática quando aparecem nos dois lados.
-function ifpsProductNamesClearlyConflict(itemName, pratoDescricao) {
-  const itemNorm = ifpsNormalize(itemName);
-  const pratoNorm = ifpsNormalize(pratoDescricao);
-  const itemPizza = /\bPIZZA\b/.test(itemNorm);
-  const pratoPizza = /\bPIZZA\b/.test(pratoNorm);
-  if (itemPizza !== pratoPizza) return true;
-
-  const itemSize = ifpsSizeWordTag(itemName) || ifpsExtractSizeTag(itemName);
-  const pratoSize = ifpsSizeWordTag(pratoDescricao) || ifpsExtractSizeTag(pratoDescricao);
-  if (itemSize && pratoSize && itemSize !== pratoSize) return true;
-
-  const itemVol = ifpsExtractVolumeMl(itemName);
-  const pratoVol = ifpsExtractVolumeMl(pratoDescricao);
-  return itemVol != null && pratoVol != null && itemVol !== pratoVol;
-}
-
 // Score entre o NOME DO ITEM no iFood e a Descrição de uma linha tipo PRATO
 // da planilha Saipos — usado pra comparar o "código pai" que você já digitou
 // no campo do item com o produto que a planilha diz que aquele código é.
 // Mais simples que ifpsScoreMatch (não tem categoria/grupo pra comparar,
 // já que aqui os dois lados são só o nome do prato inteiro), mas reaproveita
-// os mesmos desempates de tamanho e volume — importantes numa pizzaria (onde
-// "Calabresa Grande" e "Calabresa Individual" são produtos diferentes, mas o
-// nome bate quase 100% por bigrama se ignorar o tamanho) e em bebidas (onde
-// "Coca-Cola 350ml" e "Coca-Cola 2L" também são produtos diferentes, mesmo
-// problema).
+// o mesmo desempate de tamanho — importante numa pizzaria, onde "Calabresa
+// Grande" e "Calabresa Individual" são produtos (e códigos) diferentes mas
+// o nome bate quase 100% por bigrama se ignorar o tamanho.
 function ifpsScoreProduto(itemName, pratoDescricao) {
   let score = ifpsDiceCoefficient(itemName, pratoDescricao);
   score += ifpsContainmentBonus(itemName, pratoDescricao);
@@ -481,12 +367,8 @@ function ifpsScoreProduto(itemName, pratoDescricao) {
   // ifpsSignificantWords), não penaliza; se sobrar uma palavra que muda o
   // tipo do produto, o score cai o bastante pra sair de "alta confiança" e
   // virar algo que passa por revisão manual em vez de aplicar sozinho.
-  const itemWords = new Set(
-    ifpsSignificantWords(itemName).filter((w) => !IFPS_SIZE_WORD_TOKEN_RE.test(w) && !IFPS_VOLUME_WORD_RE.test(w))
-  );
-  const pratoWords = new Set(
-    ifpsSignificantWords(pratoDescricao).filter((w) => !IFPS_SIZE_WORD_TOKEN_RE.test(w) && !IFPS_VOLUME_WORD_RE.test(w))
-  );
+  const itemWords = new Set(ifpsSignificantWords(itemName).filter((w) => !IFPS_SIZE_WORD_TOKEN_RE.test(w)));
+  const pratoWords = new Set(ifpsSignificantWords(pratoDescricao).filter((w) => !IFPS_SIZE_WORD_TOKEN_RE.test(w)));
   let extraWords = 0;
   for (const w of pratoWords) if (!itemWords.has(w)) extraWords++;
   for (const w of itemWords) if (!pratoWords.has(w)) extraWords++;
@@ -496,14 +378,6 @@ function ifpsScoreProduto(itemName, pratoDescricao) {
   const pratoSize = ifpsSizeWordTag(pratoDescricao) || ifpsExtractSizeTag(pratoDescricao);
   if (itemSize && pratoSize) {
     score += itemSize === pratoSize ? 0.15 : -0.6;
-  }
-
-  // Volume/capacidade (bebidas): mesmo desempate usado em ifpsScoreMatch —
-  // só entra em ação quando os DOIS lados têm volume detectável no nome.
-  const itemVol = ifpsExtractVolumeMl(itemName);
-  const pratoVol = ifpsExtractVolumeMl(pratoDescricao);
-  if (itemVol != null && pratoVol != null) {
-    score += itemVol === pratoVol ? 0.3 : -0.9;
   }
 
   return Math.max(0, score);

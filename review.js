@@ -32,17 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // podem ser recriados a cada render() — duplicariam a cada nova rodada.
   document.getElementById('rv-main').addEventListener('change', (ev) => {
     onAltSelectChange(ev);
-    onProdutoSearchChange(ev);
-    onReviewCheckboxChange(ev);
     onSaiposCategoriaChange(ev);
-    updateApplyButtonCount();
-  });
-
-  // `change` só acontece depois que o usuário sai do campo. Escutar também
-  // `input` faz um código PDV colado na busca ser reconhecido na hora.
-  document.getElementById('rv-main').addEventListener('input', (ev) => {
-    if (!ev.target.classList.contains('rv-produto-search')) return;
-    onProdutoSearchChange(ev, false);
     updateApplyButtonCount();
   });
 
@@ -60,10 +50,8 @@ document.addEventListener('DOMContentLoaded', () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'IFPS_RESULTS_UPDATED') {
     loadAndRender();
-  } else if (msg.type === 'IFPS_APPLY_PROGRESS') {
-    handleApplyProgress(msg.rowId, msg.attempt, msg.maxAttempts);
   } else if (msg.type === 'IFPS_APPLY_RESULT') {
-    handleApplyResult(msg.rowId, msg.ok, msg.reason, msg.confirmation);
+    handleApplyResult(msg.rowId, msg.ok, msg.reason);
   } else if (msg.type === 'IFPS_APPLY_DONE') {
     finishApply();
   }
@@ -119,10 +107,6 @@ function rvInativoTag(row) {
   return row.itemInativo ? ' <span class="rv-inativo-tag" title="Item pausado/inativo no iFood agora">🔕 inativo</span>' : '';
 }
 
-function rvCanLocateIfoodField(row) {
-  return !!(row && (row.inputId || row.itemid));
-}
-
 function escapeHtml(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -131,70 +115,38 @@ function escapeHtml(s) {
 
 function altSelectHtml(row) {
   if (!row.alternativas || !row.alternativas.length) return '';
-  const byGroup = new Map();
-  for (const alt of row.alternativas) {
-    const group = String(alt.saiposNome || '').split(' - ')[0].trim() || 'Outros complementos';
-    if (!byGroup.has(group)) byGroup.set(group, []);
-    byGroup.get(group).push(alt);
-  }
-
-  const groupedOptions = [...byGroup.entries()]
-    .map(([group, alternatives]) => {
-      const options = alternatives
-        .map((a) => `<option value="${escapeHtml(a.saiposCodigo || '')}" ${String(a.saiposCodigo || '') === String(row.saiposCodigo || '') ? 'selected' : ''}>${escapeHtml(a.saiposNome)} — ${escapeHtml(a.saiposCodigo)}</option>`)
-        .join('');
-      return `<optgroup label="${escapeHtml(group)}">${options}</optgroup>`;
-    })
-    .join('');
-
-  return `<select class="rv-alt-select" data-mode="complemento-saipos" data-rowid="${row.rowId}" title="Escolha qualquer complemento do Excel vinculado a este código pai">
-    ${groupedOptions}
-  </select><div class="rv-alt-hint">Lista completa do Excel para este produto</div>`;
-}
-
-// Contexto visível da opção no iFood. Nomes curtos como "Tradicional",
-// "Original" ou "Sem" são ambíguos sozinhos; o grupo deixa claro se a
-// opção pertence a Borda, Sabores, Bebidas, Massa etc. Quando o portal não
-// entrega esse título, mostramos a ausência explicitamente em vez de deixar
-// o usuário acreditar que a sugestão tem contexto confiável.
-function rvGroupBadgeHtml(row) {
-  if (row.grupoIfood) {
-    return `<div class="rv-group-badge" title="Grupo de complemento capturado no cardápio do iFood"><span>Grupo iFood:</span> ${escapeHtml(row.grupoIfood)}</div>`;
-  }
-  return '<div class="rv-group-badge rv-group-unknown" title="A extensão não conseguiu identificar o grupo desta opção no cardápio"><span>Grupo iFood:</span> não identificado</div>';
-}
-
-function rvSaiposSuggestionHtml(row) {
-  return `${escapeHtml(row.saiposNome)}
-    <div class="rv-parent-code">código Saipos ${escapeHtml(row.saiposCodigo)}</div>
-    ${row.saiposDescricao ? `<div class="rv-parent-code rv-saipos-desc">produto Saipos: ${escapeHtml(row.saiposDescricao)}</div>` : ''}`;
+  return `<select class="rv-alt-select" data-rowid="${row.rowId}">
+    <option value="">— manter sugestão / ignorar —</option>
+    ${row.alternativas
+      .map((a) => `<option value="${escapeHtml(a.inputId || '')}" data-optionid="${escapeHtml(a.optionid || '')}">${escapeHtml(a.optionName)}${a.groupHeading ? ' — ' + escapeHtml(a.groupHeading) : ''}</option>`)
+      .join('')}
+  </select>`;
 }
 
 function rowHtml(row, { checkbox, defaultChecked }) {
-  const canLocate = rvCanLocateIfoodField(row);
   const checkCell = checkbox
-    ? `<input type="checkbox" class="rv-check" data-rowid="${row.rowId}" ${defaultChecked && canLocate ? 'checked' : ''} ${canLocate ? '' : 'disabled'} />`
+    ? `<input type="checkbox" class="rv-check" data-rowid="${row.rowId}" ${defaultChecked && row.inputId ? 'checked' : ''} ${row.inputId ? '' : 'disabled'} />`
     : '';
   const opcao = row.opcaoIfood
-    ? `<div class="rv-option-name">${escapeHtml(row.opcaoIfood)}</div>${rvGroupBadgeHtml(row)}`
+    ? escapeHtml(row.opcaoIfood) + (row.grupoIfood ? `<div class="rv-parent-code">${escapeHtml(row.grupoIfood)}</div>` : '')
     : '<span class="rv-parent-code">nenhuma opção parecida encontrada</span>';
 
   return `<tr class="${rvRowInativoClass(row).trim()}">
     <td>${checkCell}</td>
     <td class="rv-categoria">${row.categoriaIfood ? escapeHtml(row.categoriaIfood) : '<span class="rv-parent-code">—</span>'}</td>
-    <td class="rv-item-name" title="${escapeHtml(row.itemName)}">${escapeHtml(row.itemName)}${rvInativoTag(row)}<div class="rv-parent-code">código pai ${escapeHtml(row.parentCode)}</div></td>
-    <td class="rv-ifood-complement">${opcao}</td>
-    <td class="rv-saipos-complement"><div class="rv-saipos-suggestion-content">${rvSaiposSuggestionHtml(row)}</div>${checkbox ? altSelectHtml(row) : ''}</td>
+    <td class="rv-item-name" title="${escapeHtml(row.itemName)}">${escapeHtml(row.itemName)}${rvInativoTag(row)}<div class="rv-parent-code">código pai ${escapeHtml(row.parentCode)}</div>${row.saiposDescricao ? `<div class="rv-parent-code rv-saipos-desc">Saipos: ${escapeHtml(row.saiposDescricao)}</div>` : ''}</td>
+    <td>${escapeHtml(row.saiposNome)}<div class="rv-parent-code">${escapeHtml(row.saiposCodigo)}</div></td>
+    <td>${opcao}${checkbox ? altSelectHtml(row) : ''}</td>
     <td>${escapeHtml(row.valorAtual)}</td>
-    <td><strong class="rv-new-code-value">${escapeHtml(row.novoCodigo)}</strong>${row.duplicataDe ? `<div class="rv-parent-code">código atual já é de "${escapeHtml(row.duplicataDe)}" (linha equivalente na planilha)</div>` : ''}${row.codigoGlobalReutilizado ? '<div class="rv-parent-code rv-global-code-note">código atual confirmado em outra linha/produto da planilha</div>' : ''}</td>
-    <td><span class="rv-score-value">${row.score.toFixed(2)}</span><div class="rv-status" data-status-for="${row.rowId}"></div></td>
+    <td><strong>${escapeHtml(row.novoCodigo)}</strong>${row.duplicataDe ? `<div class="rv-parent-code">código atual já é de "${escapeHtml(row.duplicataDe)}" (linha equivalente na planilha)</div>` : ''}</td>
+    <td>${row.score.toFixed(2)}<div class="rv-status" data-status-for="${row.rowId}"></div></td>
   </tr>`;
 }
 
 function tableHtml(rows, { checkbox, defaultChecked }) {
   if (!rows.length) return '<p class="rv-section-hint">Nenhum item nessa categoria.</p>';
   const head = `<thead><tr>
-    <th></th><th>Categoria iFood</th><th>Item iFood</th><th>Complemento iFood</th><th>Complemento Saipos sugerido</th><th>Código atual</th><th>Código sugerido</th><th>Score</th>
+    <th></th><th>Categoria (iFood)</th><th>Item (iFood)</th><th>Complemento (Saipos)</th><th>Opção sugerida</th><th>Código atual</th><th>Novo código</th><th>Score</th>
   </tr></thead>`;
   const body = rows.map((r) => rowHtml(r, { checkbox, defaultChecked })).join('');
   return `<table class="rv-table">${head}<tbody>${body}</tbody></table>`;
@@ -202,41 +154,14 @@ function tableHtml(rows, { checkbox, defaultChecked }) {
 
 // ---------- seção "produtos pai" (compara o item inteiro, não os complementos) ----------
 
-function rvProdutoAlternativas(row) {
-  // Compatibilidade com relatórios gerados por versões anteriores, que
-  // guardavam as alternativas dentro de cada linha.
-  if (rvData && Array.isArray(rvData.produtosPaiAlternativas)) return rvData.produtosPaiAlternativas;
-  if (!row && rvData && Array.isArray(rvData.produtosPai)) {
-    const oldRow = rvData.produtosPai.find((item) => Array.isArray(item.alternativas) && item.alternativas.length);
-    if (oldRow) return oldRow.alternativas;
-  }
-  return Array.isArray(row && row.alternativas) ? row.alternativas : [];
-}
-
-function rvProdutoAltLabel(alt) {
-  const descricao = String(alt.descricao || '').trim() || '(sem descrição)';
-  const codigo = String(alt.codigo || '').trim();
-  return `${descricao} — ${codigo}`;
-}
-
-// Um único datalist compartilhado por todas as linhas. O navegador faz a
-// busca pelo texto digitado sem precisarmos repetir centenas de <option> em
-// cada produto do iFood.
-function produtoDatalistHtml() {
-  const alternatives = rvProdutoAlternativas(null);
-  if (!alternatives.length) return '';
-  return `<datalist id="rv-produto-excel-options">
-    ${alternatives.map((a) => `<option value="${escapeHtml(rvProdutoAltLabel(a))}"></option>`).join('')}
-  </datalist>`;
-}
-
-function produtoSearchHtml(row) {
-  const alternatives = rvProdutoAlternativas(row);
-  if (!alternatives.length) return '';
-  return `<div class="rv-produto-search-wrap">
-    <input type="search" class="rv-produto-search" data-rowid="${row.rowId}" list="rv-produto-excel-options" autocomplete="off" placeholder="Cole o código PDV ou busque o produto..." />
-    <div class="rv-alt-hint">Busca em todos os ${alternatives.length} produtos ativos do Excel · código colado é reconhecido na hora</div>
-  </div>`;
+function produtoAltSelectHtml(row) {
+  if (!row.alternativas || !row.alternativas.length) return '';
+  return `<select class="rv-alt-select" data-rowid="${row.rowId}" data-mode="produto">
+    <option value="">— manter sugestão / ignorar —</option>
+    ${row.alternativas
+      .map((a) => `<option value="${escapeHtml(a.codigo || '')}">${escapeHtml(a.descricao)} — ${escapeHtml(a.codigo)}</option>`)
+      .join('')}
+  </select>`;
 }
 
 // Botão/selo que aparece na coluna do prato sugerido, só nos buckets "média"
@@ -255,28 +180,21 @@ function saiposInlineActionHtml(row) {
 }
 
 function produtoRowHtml(row, { checkbox, defaultChecked, showSaiposAction }) {
-  const canLocate = rvCanLocateIfoodField(row);
-  const canApply =
-    !!row.novoCodigo &&
-    String(row.novoCodigo).trim().toLowerCase() !== String(row.codigoAtual || '').trim().toLowerCase() &&
-    canLocate;
+  const canApply = !!row.novoCodigo && row.novoCodigo !== row.codigoAtual;
   const checkCell = checkbox
-    ? `<input type="checkbox" class="rv-check" data-rowid="${row.rowId}" ${defaultChecked && canApply ? 'checked' : ''} ${canLocate ? '' : 'disabled'} title="${canLocate ? 'Você pode marcar primeiro e depois colar ou escolher o código PDV' : 'Campo do item não foi localizado no iFood'}" />`
+    ? `<input type="checkbox" class="rv-check" data-rowid="${row.rowId}" ${defaultChecked && canApply ? 'checked' : ''} ${canApply ? '' : 'disabled'} />`
     : '';
   const prato = row.pratoNome
     ? escapeHtml(row.pratoNome) + `<div class="rv-parent-code">${escapeHtml(row.novoCodigo)}</div>`
     : '<span class="rv-parent-code">nenhum prato parecido encontrado na planilha</span>';
-  const initialStatus = row.confidence === 'correto'
-    ? '<div class="rv-status rv-ok">✔ PDV já correto — nenhuma alteração necessária</div>'
-    : `<div class="rv-status" data-status-for="${row.rowId}"></div>`;
 
   return `<tr class="${rvRowInativoClass(row).trim()}">
     <td>${checkCell}</td>
     <td class="rv-categoria">${row.categoriaIfood ? escapeHtml(row.categoriaIfood) : '<span class="rv-parent-code">—</span>'}</td>
     <td class="rv-item-name" title="${escapeHtml(row.itemName)}">${escapeHtml(row.itemName)}${rvInativoTag(row)}</td>
     <td>${row.codigoAtual ? escapeHtml(row.codigoAtual) : '<span class="rv-parent-code">(vazio)</span>'}</td>
-    <td><div class="rv-produto-suggestion-content">${prato}</div>${checkbox ? produtoSearchHtml(row) : ''}${showSaiposAction ? `<div class="rv-produto-saipos-action">${saiposInlineActionHtml(row)}</div>` : ''}</td>
-    <td><span class="rv-produto-score-value">${row.score.toFixed(2)}</span>${initialStatus}</td>
+    <td>${prato}${checkbox ? produtoAltSelectHtml(row) : ''}${showSaiposAction ? saiposInlineActionHtml(row) : ''}</td>
+    <td>${row.score.toFixed(2)}<div class="rv-status" data-status-for="${row.rowId}"></div></td>
   </tr>`;
 }
 
@@ -304,7 +222,7 @@ function render() {
     <div class="rv-stat"><strong>${totalCorreto}</strong> já corretos</div>
     <div class="rv-stat"><strong>${b.alta.length}</strong> prontos para aplicar</div>
     <div class="rv-stat"><strong>${b.media.length + b.baixa.length}</strong> para você analisar</div>
-    <div class="rv-stat"><strong>${rvData.semPlanilha.length}</strong> itens com opções sem complementos na planilha</div>
+    <div class="rv-stat"><strong>${rvData.semPlanilha.length}</strong> itens sem linha na planilha</div>
     <div class="rv-stat"><strong>${rvData.semCodigoPai.length}</strong> itens sem código pai</div>
     ${pAll.length ? `<div class="rv-stat"><strong>${pSuspeitos}</strong> produtos pai a revisar 🍕</div>` : ''}
   `;
@@ -375,7 +293,7 @@ function render() {
       <div class="rv-section-body">
         <p class="rv-section-hint">
           ${b.correto_ok.length} desses o código já bate e o nome do complemento também é parecido o bastante — nada a revisar.
-          ${b.correto_suspeito.length ? `Os ${b.correto_suspeito.length} abaixo têm o código atual considerado certo, mas vale um olhar rápido: ou o nome ficou bem diferente do da planilha, o código bate com uma linha equivalente/duplicada, ou foi confirmado em outro produto pai da planilha. Nesses casos a extensão preserva o valor atual e explica o motivo na própria linha.` : ''}
+          ${b.correto_suspeito.length ? `Os ${b.correto_suspeito.length} abaixo têm o código atual considerado certo, mas vale um olhar rápido: ou o nome ficou bem diferente do da planilha (pode ser coincidência de código), ou o código atual bate com OUTRA linha da planilha pro mesmo sabor/produto (planilha com entrada duplicada) — nesse caso "Novo código" e "Código atual" podem aparecer diferentes mesmo os dois estando certos.` : ''}
         </p>
         ${b.correto_suspeito.length ? tableHtml(b.correto_suspeito, { checkbox: false }) : ''}
       </div>
@@ -417,7 +335,7 @@ function render() {
       <details class="rv-section rv-sec-misc">
         <summary>Itens do iFood fora do casamento <span class="rv-count-badge">${rvData.semPlanilha.length + rvData.semCodigoPai.length}</span></summary>
         <div class="rv-section-body">
-          ${rvData.semPlanilha.length ? `<p class="rv-section-hint"><strong>Possuem opções no iFood, mas não há complementos vinculados na planilha</strong> (o código pai está preenchido, porém não existe nenhuma linha Tipo=COMPLEMENTO com esse código):</p><div class="rv-misc-list">${rvData.semPlanilha.map((i) => escapeHtml(i.itemName) + ' <span class="rv-parent-code">(' + escapeHtml(i.parentCode) + ')' + (i.itemInativo ? ' · inativo' : '') + '</span>').join('<br />')}</div>` : ''}
+          ${rvData.semPlanilha.length ? `<p class="rv-section-hint"><strong>Sem linha na planilha</strong> (código pai preenchido no iFood, mas nenhum complemento com esse código na Saipos):</p><div class="rv-misc-list">${rvData.semPlanilha.map((i) => escapeHtml(i.itemName) + ' <span class="rv-parent-code">(' + escapeHtml(i.parentCode) + ')' + (i.itemInativo ? ' · inativo' : '') + '</span>').join('<br />')}</div>` : ''}
           ${rvData.semCodigoPai.length ? `<p class="rv-section-hint" style="margin-top:12px;"><strong>Sem código pai preenchido no iFood ainda:</strong></p><div class="rv-misc-list">${rvData.semCodigoPai.map((i) => escapeHtml(i.itemName) + (i.itemInativo ? ' <span class="rv-parent-code">· inativo</span>' : '')).join('<br />')}</div>` : ''}
         </div>
       </details>
@@ -434,7 +352,7 @@ function render() {
 
   main.innerHTML = `
     <div class="rv-tab-panel" data-tab="complemento" ${rvActiveTab === 'complemento' ? '' : 'hidden'}>${sectionsComplemento.join('')}</div>
-    <div class="rv-tab-panel" data-tab="produto" ${rvActiveTab === 'produto' ? '' : 'hidden'}>${produtoDatalistHtml()}${sectionsProduto.join('')}</div>
+    <div class="rv-tab-panel" data-tab="produto" ${rvActiveTab === 'produto' ? '' : 'hidden'}>${sectionsProduto.join('')}</div>
     <div class="rv-tab-panel" data-tab="saipos" ${rvActiveTab === 'saipos' ? '' : 'hidden'}>${saiposPanelHtml(saiposFaltantes)}</div>
   `;
 
@@ -695,123 +613,29 @@ function onAltSelectChange(ev) {
   const tr = ev.target.closest('tr');
   const checkbox = tr.querySelector('.rv-check');
 
-  if (ev.target.dataset.mode === 'complemento-saipos') {
-    const selected = (row.alternativas || []).find(
-      (alt) => String(alt.saiposCodigo || '') === String(ev.target.value || '')
-    );
-    if (!selected) return;
-
-    // O campo/opção do iFood permanece o mesmo; muda apenas a linha do
-    // Excel cujo código será aplicado nele.
-    row.saiposNome = selected.saiposNome;
-    row.saiposCodigo = selected.saiposCodigo;
-    row.saiposDescricao = selected.saiposDescricao;
-    row.novoCodigo = selected.novoCodigo;
-    row.manualSelection = true;
-
-    const mudou =
-      !!row.novoCodigo &&
-      String(row.novoCodigo).trim().toLowerCase() !== String(row.valorAtual || '').trim().toLowerCase();
-    checkbox.disabled = !mudou;
-    checkbox.checked = mudou;
-
-    const suggestionEl = tr.querySelector('.rv-saipos-suggestion-content');
-    if (suggestionEl) suggestionEl.innerHTML = rvSaiposSuggestionHtml(row);
-    const newCodeEl = tr.querySelector('.rv-new-code-value');
-    if (newCodeEl) newCodeEl.textContent = row.novoCodigo;
-    const scoreEl = tr.querySelector('.rv-score-value');
-    if (scoreEl) scoreEl.textContent = 'manual';
-    const statusEl = tr.querySelector(`[data-status-for="${row.rowId}"]`);
-    if (statusEl) {
-      statusEl.textContent = mudou ? 'seleção manual' : 'já é o código atual';
-      statusEl.className = mudou ? 'rv-status' : 'rv-status rv-ok';
-    }
-  }
-}
-
-function onProdutoSearchChange(ev, showInvalid = true) {
-  if (!ev.target.classList.contains('rv-produto-search')) return;
-  const rowId = Number(ev.target.dataset.rowid);
-  const row = rvRowsById.get(rowId);
-  if (!row) return;
-
-  const typed = String(ev.target.value || '').trim().toLocaleLowerCase('pt-BR');
-  const selected = rvProdutoAlternativas(row).find((alt) => {
-    const label = rvProdutoAltLabel(alt).toLocaleLowerCase('pt-BR');
-    const code = String(alt.codigo || '').trim().toLocaleLowerCase('pt-BR');
-    return typed === label || typed === code;
-  });
-  const tr = ev.target.closest('tr');
-  const statusEl = tr.querySelector(`[data-status-for="${row.rowId}"]`);
-
-  if (!selected) {
-    if (statusEl && typed && showInvalid) {
-      statusEl.textContent = 'selecione um resultado da lista';
-      statusEl.className = 'rv-status rv-fail';
+  if (ev.target.dataset.mode === 'produto') {
+    // Nas linhas de "produtos pai" todas as alternativas apontam pro MESMO
+    // campo (o código pai do item) — só o código sugerido muda, o inputId
+    // continua sendo sempre o campo próprio do item.
+    if (ev.target.value) {
+      row.novoCodigo = ev.target.value;
+      const mudou = row.novoCodigo !== row.codigoAtual;
+      checkbox.disabled = !mudou;
+      checkbox.checked = mudou;
+    } else {
+      checkbox.checked = false;
     }
     return;
   }
 
-  // A busca só troca o prato/código Saipos sugerido. O item e o campo do
-  // iFood permanecem fixos na mesma linha.
-  row.pratoNome = selected.descricao;
-  row.novoCodigo = selected.codigo;
-  row.manualSelection = true;
-  row.semCorrespondencia = false;
-
-  const mudou =
-    !!row.novoCodigo &&
-    String(row.novoCodigo).trim().toLowerCase() !== String(row.codigoAtual || '').trim().toLowerCase();
-  const checkbox = tr.querySelector('.rv-check');
-  if (checkbox) {
-    checkbox.disabled = !mudou;
-    checkbox.checked = mudou;
+  if (ev.target.value) {
+    row.inputId = ev.target.value;
+    row.optionid = ev.target.selectedOptions[0] ? ev.target.selectedOptions[0].dataset.optionid || null : null;
+    checkbox.disabled = false;
+    checkbox.checked = true;
+  } else {
+    checkbox.checked = false;
   }
-
-  // Se o produto escolhido tem exatamente o código pai que já estava no
-  // iFood, não há correção a fazer. A linha vira "correta", deixa de ser
-  // candidata a criação no Saipos e some das seções de revisão.
-  if (!mudou) {
-    row.confidence = 'correto';
-    row.nomeSuspeito = false;
-    rvManualSaiposRowIds.delete(row.rowId);
-    // Reorganiza imediatamente a linha na seção "Já corretos". Deixá-la na
-    // seção de erro com o checkbox bloqueado fazia parecer que a aplicação
-    // estava quebrada, embora não houvesse nada para alterar.
-    render();
-    return;
-  }
-
-  const suggestionEl = tr.querySelector('.rv-produto-suggestion-content');
-  if (suggestionEl) {
-    suggestionEl.innerHTML = `${escapeHtml(row.pratoNome)}<div class="rv-parent-code">${escapeHtml(row.novoCodigo)}</div>`;
-  }
-  const scoreEl = tr.querySelector('.rv-produto-score-value');
-  if (scoreEl) scoreEl.textContent = 'manual';
-  const saiposActionEl = tr.querySelector('.rv-produto-saipos-action');
-  if (saiposActionEl) saiposActionEl.innerHTML = saiposInlineActionHtml(row);
-  if (statusEl) {
-    statusEl.textContent = mudou ? 'seleção manual' : 'já é o código pai atual';
-    statusEl.className = mudou ? 'rv-status' : 'rv-status rv-ok';
-  }
-}
-
-function onReviewCheckboxChange(ev) {
-  if (!ev.target.classList.contains('rv-check') || !ev.target.checked || rvActiveTab !== 'produto') return;
-  const row = rvRowsById.get(Number(ev.target.dataset.rowid));
-  if (!row) return;
-  const codigoNovo = String(row.novoCodigo || '').trim().toLowerCase();
-  const codigoAtual = String(row.codigoAtual || '').trim().toLowerCase();
-  if (codigoNovo && codigoNovo !== codigoAtual) return;
-
-  const tr = ev.target.closest('tr');
-  const search = tr ? tr.querySelector('.rv-produto-search') : null;
-  const statusEl = tr ? tr.querySelector(`[data-status-for="${row.rowId}"]`) : null;
-  if (statusEl) {
-    statusEl.textContent = 'marcado — agora cole ou escolha o código PDV';
-    statusEl.className = 'rv-status';
-  }
-  if (search) search.focus();
 }
 
 // Só os checkboxes marcados dentro da aba ATUALMENTE visível (Complementos
@@ -824,21 +648,10 @@ function rvCheckedInActiveTab() {
 }
 
 function updateApplyButtonCount() {
-  const checkedEls = rvCheckedInActiveTab();
-  const ready = checkedEls.filter((cb) => {
-    const row = rvRowsById.get(Number(cb.dataset.rowid));
-    if (!row || !row.novoCodigo) return false;
-    const atual = String(row.codigoAtual || row.valorAtual || '').trim().toLowerCase();
-    return String(row.novoCodigo).trim().toLowerCase() !== atual;
-  }).length;
-  const pending = checkedEls.length - ready;
+  const checked = rvCheckedInActiveTab().length;
   const btn = document.getElementById('rv-btn-apply');
-  btn.textContent = pending
-    ? `Cole/escolha o PDV de ${pending} marcado${pending === 1 ? '' : 's'}`
-    : ready
-    ? `⚠️ Aplicar selecionados (${ready})`
-    : '⚠️ Aplicar selecionados';
-  btn.disabled = ready === 0 || pending > 0;
+  btn.textContent = checked ? `⚠️ Aplicar selecionados (${checked})` : '⚠️ Aplicar selecionados';
+  btn.disabled = checked === 0;
 }
 
 document.getElementById('rv-btn-apply').addEventListener('click', () => {
@@ -847,25 +660,12 @@ document.getElementById('rv-btn-apply').addEventListener('click', () => {
     return;
   }
   const checked = rvCheckedInActiveTab();
-  const selectedRows = checked
+  const rows = checked
     .map((cb) => rvRowsById.get(Number(cb.dataset.rowid)))
-    .filter(Boolean);
-  const rows = selectedRows
-    .filter((r) => rvCanLocateIfoodField(r) && r.novoCodigo)
-    .map((r) => ({
-      rowId: r.rowId,
-      inputId: r.inputId,
-      itemid: r.itemid,
-      optionid: r.optionid,
-      isPizza: !!r.isPizza,
-      codigoAtual: r.codigoAtual || r.valorAtual || '',
-      novoCodigo: r.novoCodigo,
-    }));
+    .filter((r) => r && r.inputId && r.novoCodigo)
+    .map((r) => ({ rowId: r.rowId, inputId: r.inputId, itemid: r.itemid, optionid: r.optionid, novoCodigo: r.novoCodigo }));
 
-  if (!rows.length) {
-    alert('Não consegui localizar os campos selecionados no cardápio. Atualize a página do PDV, faça uma nova verificação e tente novamente.');
-    return;
-  }
+  if (!rows.length) return;
 
   // Confirmação explícita: essa ação escreve direto no cardápio do iFood,
   // então um clique sem querer no botão não pode disparar nada sozinho.
@@ -922,21 +722,10 @@ document.getElementById('rv-btn-apply').addEventListener('click', () => {
     });
 });
 
-function handleApplyProgress(rowId, attempt, maxAttempts) {
-  const statusEl = document.querySelector(`[data-status-for="${rowId}"]`);
-  if (!statusEl) return;
-  statusEl.textContent = `preenchendo — tentativa ${attempt}/${maxAttempts}...`;
-  statusEl.className = 'rv-status';
-}
-
-function handleApplyResult(rowId, ok, reason, confirmation) {
+function handleApplyResult(rowId, ok, reason) {
   const statusEl = document.querySelector(`[data-status-for="${rowId}"]`);
   if (statusEl) {
-    statusEl.textContent = ok
-      ? confirmation === 'field'
-        ? '✔ aplicado — o iFood aceitou o valor (sem mostrar o aviso verde)'
-        : '✔ aplicado'
-      : '✘ ' + (reason || 'falhou');
+    statusEl.textContent = ok ? '✔ aplicado' : '✘ ' + (reason || 'falhou');
     statusEl.className = ok ? 'rv-status rv-ok' : 'rv-status rv-fail';
   }
   window._rvApplyDone = (window._rvApplyDone || 0) + 1;

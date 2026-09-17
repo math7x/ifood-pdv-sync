@@ -14,11 +14,7 @@
 const IFPS_CONFIG = {
   itemInputSelector: 'input[data-testid="item-pdv-input"]',
   optionInputSelector: 'input[data-testid="option-pdv-input"]',
-  // O portal já mudou a classe gerada do título dos grupos algumas vezes.
-  // Usar só "p.sc-sSmyr" fazia títulos visíveis como "Borda" sumirem da
-  // leitura, deixando a opção "Tradicional" sem contexto. Priorizamos
-  // títulos semânticos e parágrafos dentro do próprio card.
-  groupHeadingSelector: 'p, h2, h3, h4, h5, h6, [class*="group"][class*="title"], [class*="group"][class*="heading"]',
+  groupHeadingSelector: 'p.sc-sSmyr',
   optionLabelSelector: 'span[class*="link-text__content"]',
   toggleSelector: 'label[class*="_selectable-chip-wrapper_"]',
   itemNameMaxLevels: 10,
@@ -101,94 +97,12 @@ function ifpsSleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// A lista do PDV rola dentro de um CONTÊINER INTERNO com overflow próprio
-// (visto ao vivo: <div data-testid="main-layout-scroll" class=
-// "main-partners__scroll">) — a página/`window` em volta não rola, fica
-// sempre do tamanho da viewport (document.body.scrollHeight ==
-// window.innerHeight o tempo todo, mesmo com o cardápio inteiro carregado).
-// `window.scrollBy`/`window.scrollY` não fazem NADA nesse caso, e a checagem
-// de "chegou ao fim da lista" batia verdadeira já na primeira rodada — a
-// extensão achava que tinha acabado de rolar e só capturava os itens que já
-// estavam visíveis de cara, perdendo o resto do cardápio silenciosamente
-// (bug real visto ao vivo: cardápio com "muitos e muitos itens pai" só teve
-// 27 lidos). As funções abaixo tentam achar esse contêiner real primeiro, e
-// só caem pra `window` como último recurso, pra continuar funcionando se o
-// iFood mudar o layout nesse selector específico de novo.
-let ifpsScrollContainerCache = null;
-
-function ifpsFindScrollContainer() {
-  if (
-    ifpsScrollContainerCache &&
-    document.contains(ifpsScrollContainerCache) &&
-    ifpsScrollContainerCache.scrollHeight > ifpsScrollContainerCache.clientHeight
-  ) {
-    return ifpsScrollContainerCache;
-  }
-
-  // 1ª tentativa: o contêiner específico confirmado inspecionando o portal
-  // ao vivo.
-  let el = document.querySelector('[data-testid="main-layout-scroll"]');
-  if (el && el.scrollHeight > el.clientHeight) {
-    ifpsScrollContainerCache = el;
-    return el;
-  }
-
-  // 2ª tentativa (fallback resistente a mudança de layout): qualquer
-  // elemento com overflow rolável cujo conteúdo seja visivelmente maior que
-  // a área visível dele — pega o de maior scrollHeight, que tende a ser o
-  // contêiner principal da lista, não um dropdown/modal pequeno.
-  const candidates = [...document.querySelectorAll('div, main, section')].filter((e) => {
-    const cs = getComputedStyle(e);
-    return /(auto|scroll)/.test(cs.overflowY) && e.scrollHeight > e.clientHeight + 50;
-  });
-  if (candidates.length) {
-    candidates.sort((a, b) => b.scrollHeight - a.scrollHeight);
-    ifpsScrollContainerCache = candidates[0];
-    return candidates[0];
-  }
-
-  ifpsScrollContainerCache = null;
-  return null;
-}
-
-// Pequena abstração pra rolar e checar "chegou ao fim" no contêiner CERTO
-// (achado por ifpsFindScrollContainer), caindo pra `window` só se nenhum
-// contêiner rolável for encontrado (layout sem contêiner próprio, ou selector
-// desatualizado).
-function ifpsScrollState() {
-  const c = ifpsFindScrollContainer();
-  if (c) {
-    return {
-      viewportSize: c.clientHeight,
-      scrollBy: (amount) => c.scrollBy(0, amount),
-      scrollToTop: () => c.scrollTo(0, 0),
-      height: c.scrollHeight,
-      atBottom: c.scrollTop + c.clientHeight >= c.scrollHeight - 4,
-    };
-  }
-  return {
-    viewportSize: window.innerHeight,
-    scrollBy: (amount) => window.scrollBy(0, amount),
-    scrollToTop: () => window.scrollTo(0, 0),
-    height: document.body.scrollHeight,
-    atBottom: window.innerHeight + window.scrollY >= document.body.scrollHeight - 4,
-  };
-}
-
-// Expande os complementos E captura os itens na mesma travessia. Antes a
-// extensão rolava o cardápio inteiro uma vez só para expandir e depois uma
-// segunda vez só para ler; numa lista grande isso praticamente dobrava o
-// tempo de cada rodada. `items` é o índice acumulado usado pelo scan.
-async function ifpsExpandAll(items) {
+async function ifpsExpandAll() {
   let stableRounds = 0;
   let lastHeight = -1;
   const maxRounds = 80;
 
   for (let round = 0; round < maxRounds; round++) {
-    // Guarda o que já está montado nesta posição antes de qualquer clique —
-    // inclui produtos sem complemento e opções que já estavam expandidas.
-    if (items) ifpsCaptureSnapshot(items);
-
     const toggles = [...document.querySelectorAll(IFPS_CONFIG.toggleSelector)].filter(
       (el) => /^Complementos/i.test(el.innerText.trim()) && !/chips--checked/.test(el.className)
     );
@@ -199,20 +113,13 @@ async function ifpsExpandAll(items) {
 
     if (toggles.length > 0) {
       await ifpsSleep(120);
-      // Captura antes de sair desta posição: numa lista virtualizada, o card
-      // pode ser desmontado assim que rolar e as opções recém-abertas
-      // desapareceriam do DOM antes da leitura.
-      if (items) ifpsCaptureSnapshot(items);
     }
 
-    const scroll = ifpsScrollState();
-    scroll.scrollBy(Math.round(scroll.viewportSize * 0.85));
+    window.scrollBy(0, Math.round(window.innerHeight * 0.85));
     await ifpsSleep(220);
-    if (items) ifpsCaptureSnapshot(items);
 
-    const after = ifpsScrollState();
-    const newHeight = after.height;
-    const reachedBottom = after.atBottom;
+    const newHeight = document.body.scrollHeight;
+    const reachedBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 4;
 
     if (toggles.length === 0 && newHeight === lastHeight && reachedBottom) {
       stableRounds++;
@@ -223,9 +130,8 @@ async function ifpsExpandAll(items) {
     lastHeight = newHeight;
   }
 
-  ifpsScrollState().scrollToTop();
+  window.scrollTo(0, 0);
   await ifpsSleep(150);
-  if (items) ifpsCaptureSnapshot(items);
 }
 
 // ---------- Etapa 2: ler o DOM ----------
@@ -308,39 +214,6 @@ function ifpsNearestHeadingAbove(inputEl, headings) {
     }
   }
   return best ? best.text : '';
-}
-
-// Procura primeiro o título dentro do próprio card do item. Isso evita
-// depender de uma classe CSS específica do build do iFood e também impede
-// que um título pertencente ao card anterior seja escolhido só por estar
-// geometricamente perto. O fallback global mantém compatibilidade com
-// layouts em que o título fica fora do elemento item-card.
-function ifpsGroupHeadingForInput(inputEl, headings) {
-  const card = inputEl.closest(IFPS_CONFIG.pizzaCardSelector);
-  if (card) {
-    const inputRect = inputEl.getBoundingClientRect();
-    const optionText = ifpsNearestLabel(inputEl, IFPS_CONFIG.optionLabelSelector, IFPS_CONFIG.optionNameMaxLevels);
-    const localCandidates = [...card.querySelectorAll(IFPS_CONFIG.groupHeadingSelector)]
-      .map((el) => ({
-        text: (el.innerText || el.textContent || '').trim(),
-        rect: el.getBoundingClientRect(),
-      }))
-      .filter((candidate) => {
-        if (!candidate.text || candidate.text.length > 140) return false;
-        if (IFPS_HEADING_BADGE_RE.test(candidate.text)) return false;
-        if (candidate.text === optionText) return false;
-        if (candidate.rect.width === 0 && candidate.rect.height === 0) return false;
-        // O título precisa terminar antes da linha do campo; isso exclui o
-        // próprio nome da opção, que fica à esquerda do input na mesma linha.
-        return candidate.rect.bottom <= inputRect.top + 6;
-      });
-
-    if (localCandidates.length) {
-      localCandidates.sort((a, b) => b.rect.bottom - a.rect.bottom);
-      return localCandidates[0].text;
-    }
-  }
-  return ifpsNearestHeadingAbove(inputEl, headings);
 }
 
 // Acha o título da categoria (ex: "*** Combos Especiais ***") do card de
@@ -448,7 +321,7 @@ function ifpsCaptureSnapshot(items) {
     // opção — é o padrão observado pro campo de tamanho da pizza.
     let parentInput = null;
     for (const input of inputs) {
-      const groupHeading = ifpsGroupHeadingForInput(input, headings);
+      const groupHeading = ifpsNearestHeadingAbove(input, headings);
       if (/tamanho/i.test(groupHeading)) {
         parentInput = input;
         break;
@@ -497,7 +370,7 @@ function ifpsCaptureSnapshot(items) {
     if (item.isPizza && optionid && optionid === item.pizzaParentOptionid) continue;
 
     const optionName = ifpsNearestLabel(input, IFPS_CONFIG.optionLabelSelector, IFPS_CONFIG.optionNameMaxLevels);
-    const groupHeading = ifpsGroupHeadingForInput(input, headings);
+    const groupHeading = ifpsNearestHeadingAbove(input, headings);
 
     ifpsMergeOption(item, {
       optionid,
@@ -508,6 +381,42 @@ function ifpsCaptureSnapshot(items) {
       inputId: input.id,
     });
   }
+}
+
+// Uma passada de leitura: rola a página inteira de cima a baixo (e volta pro
+// topo no final) capturando/mesclando o índice a cada parada, pra nenhum
+// item que "sai da tela" e é desmontado ficar de fora DESSA passada.
+async function ifpsScanOnePass(items) {
+  window.scrollTo(0, 0);
+  await ifpsSleep(280);
+  ifpsCaptureSnapshot(items);
+
+  let stableRounds = 0;
+  let lastHeight = -1;
+  const maxRounds = 120;
+
+  for (let round = 0; round < maxRounds; round++) {
+    window.scrollBy(0, Math.round(window.innerHeight * 0.6));
+    await ifpsSleep(260);
+    ifpsCaptureSnapshot(items);
+
+    const newHeight = document.body.scrollHeight;
+    const reachedBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 4;
+
+    if (newHeight === lastHeight && reachedBottom) {
+      stableRounds++;
+      if (stableRounds >= 2) break;
+    } else {
+      stableRounds = 0;
+    }
+    lastHeight = newHeight;
+  }
+
+  // Volta pro topo e captura mais uma vez, por garantia — os primeiros itens
+  // podem ter sido desmontados de novo depois de tanto rolar.
+  window.scrollTo(0, 0);
+  await ifpsSleep(200);
+  ifpsCaptureSnapshot(items);
 }
 
 // Antes rodava só UMA passada, mas na prática a lista do iFood às vezes
@@ -526,23 +435,16 @@ function ifpsCaptureSnapshot(items) {
 // dele só terminou de carregar/expandir DEPOIS dessa passada. Se a gente só
 // olhasse pro conjunto de ids, duas passadas podiam "empatar" (mesmos itens)
 // mesmo com uma delas tendo menos opções lidas, e a extensão parava cedo
-// demais achando que tinha estabilizado. Por isso a assinatura inclui a
-// identidade das opções, o código pai e o nome de cada item.
+// demais achando que tinha estabilizado. Por isso a assinatura inclui também
+// a quantidade total de opções somada de todos os itens.
 function ifpsIndexFingerprint(items) {
-  const itemParts = [];
+  let totalOptions = 0;
+  const ids = [];
   for (const [id, item] of items) {
-    // Inclui a identidade de cada opção (não só a quantidade), além do
-    // código pai e do nome. Assim duas passadas só são consideradas iguais
-    // quando realmente capturaram o mesmo conteúdo — segurança extra agora
-    // que expansão e leitura acontecem juntas.
-    const optionIds = (item.options || [])
-      .map((o) => o.optionid || '')
-      .filter(Boolean)
-      .sort()
-      .join(',');
-    itemParts.push([id, item.parentCode || '', item.itemName || '', optionIds].join('|'));
+    ids.push(id);
+    totalOptions += item.options ? item.options.length : 0;
   }
-  return itemParts.sort().join('||');
+  return ids.sort().join(',') + '|opts=' + totalOptions;
 }
 
 // Antes rodava só UMA passada, mas na prática a lista do iFood às vezes
@@ -552,8 +454,8 @@ function ifpsIndexFingerprint(items) {
 // o caso relatado: "às vezes puxa tudo só na 3ª vez que rodo"). Em vez de
 // depender do usuário rodar a extensão várias vezes manualmente até dar
 // certo, agora ela mesma repete a passada inteira automaticamente até duas
-// passadas seguidas baterem na mesma "assinatura" (mesmos itens, códigos e
-// opções) — ou seja, até "estabilizar" de verdade. Como
+// passadas seguidas baterem na mesma "assinatura" (mesmos itens E mesma
+// quantidade de opções lidas) — ou seja, até "estabilizar" de verdade. Como
 // o índice só ACUMULA itens/opções (nunca remove), passadas extras são
 // seguras e só custam tempo quando realmente falta algo.
 async function ifpsScanAndCapture() {
@@ -570,10 +472,8 @@ async function ifpsScanAndCapture() {
     // anterior, ele pode ter acabado de aparecer nessa rolagem — a função já
     // ignora sozinha quem já está expandido, então repetir não tem custo
     // real quando não há nada novo pra expandir.
-    // A própria expansão já captura cada viewport antes e depois dos
-    // cliques; não é mais necessário percorrer toda a lista uma segunda vez
-    // nesta mesma rodada.
-    await ifpsExpandAll(items);
+    await ifpsExpandAll();
+    await ifpsScanOnePass(items);
 
     const currentFingerprint = ifpsIndexFingerprint(items);
     if (previousFingerprint !== null && currentFingerprint === previousFingerprint) break;
@@ -587,21 +487,29 @@ async function ifpsScanAndCapture() {
 
 // ---------- Etapa 3: casar com a planilha Saipos ----------
 
-// Lista completa das linhas Tipo=COMPLEMENTO do Excel vinculadas ao código
-// pai atual. O complemento do iFood fica FIXO na linha; este menu permite
-// trocar qual complemento/código Saipos será aplicado nele. Não removemos
-// linhas já usadas em outro casamento, pois o usuário pediu acesso à lista
-// integral para correção manual.
-function ifpsSaiposAlternativasFor(complementos) {
-  return complementos
+const IFPS_MAX_ALTERNATIVAS = 60;
+
+// Lista de opções alternativas pra popular o menu suspenso de correção manual
+// na aba de revisão. Antes pegava as primeiras opções do item MISTURANDO
+// todos os grupos de complemento dele (Tamanho, Sabores, Bordas, Adicionais
+// etc.) e cortava em 25 — então num item com grupo de Sabores grande (pizza
+// com 30-40 sabores), a lista ficava cortada pela metade e ainda podia trazer
+// opção de outro grupo sem querer. Agora, quando dá pra saber a qual grupo a
+// opção sugerida pertence, mostramos só as opções DESSE MESMO grupo — assim
+// dá pra ver todos os sabores daquele item (código pai) específico, sem
+// mistura. unlimitedStorage já está habilitado, então o teto aqui é só uma
+// válvula de segurança, não a cota de storage de antes.
+function ifpsAlternativasFor(item, excludeOptionId, preferredGroupHeading) {
+  let list = excludeOptionId ? item.options.filter((o) => o.optionid !== excludeOptionId) : item.options;
+  if (preferredGroupHeading) {
+    const mesmoGrupo = list.filter((o) => o.groupHeading === preferredGroupHeading);
+    if (mesmoGrupo.length) list = mesmoGrupo;
+  }
+  return list
     .slice()
-    .sort((a, b) => String(a['Complemento'] || '').localeCompare(String(b['Complemento'] || ''), 'pt-BR'))
-    .map((row) => ({
-      saiposNome: row['Complemento'] || '',
-      saiposCodigo: String(row['Código Saipos'] || '').trim(),
-      saiposDescricao: row['Descrição'] || '',
-      novoCodigo: ifpsBuildIfoodCode(row['Código Saipos']) || '',
-    }));
+    .sort((a, b) => a.optionName.localeCompare(b.optionName, 'pt-BR'))
+    .slice(0, IFPS_MAX_ALTERNATIVAS)
+    .map((o) => ({ optionName: o.optionName, groupHeading: o.groupHeading, inputId: o.inputId, optionid: o.optionid }));
 }
 
 function ifpsIsAtivo(row) {
@@ -620,24 +528,10 @@ function ifpsMatchAgainstSaipos(index, saiposRowsRaw) {
   const complementoRows = saiposRows.filter((r) => String(r['Tipo']).trim().toUpperCase() === 'COMPLEMENTO');
 
   const complementosByParent = new Map();
-  // O iFood grava no campo apenas o sufixo "x.<código do complemento>".
-  // A mesma opção pode aparecer na planilha vinculada a outro produto pai
-  // e ainda assim ser o código correto (caso real: x.24750091 aparece como
-  // "BORDA / MASSA - TRADICIONAL" sob outro pai). Este índice global serve
-  // apenas para VALIDAR valores que já estão no iFood; novas sugestões
-  // continuam restritas às linhas do código pai do item atual.
-  const complementosByIfoodCode = new Map();
   for (const row of complementoRows) {
     const parent = ifpsParentCode(row['Código Saipos']);
     if (!complementosByParent.has(parent)) complementosByParent.set(parent, []);
     complementosByParent.get(parent).push(row);
-
-    const ifoodCode = ifpsBuildIfoodCode(row['Código Saipos']);
-    if (ifoodCode) {
-      const key = ifoodCode.toLowerCase();
-      if (!complementosByIfoodCode.has(key)) complementosByIfoodCode.set(key, []);
-      complementosByIfoodCode.get(key).push(row);
-    }
   }
 
   let rowId = 0;
@@ -654,13 +548,7 @@ function ifpsMatchAgainstSaipos(index, saiposRowsRaw) {
 
     const complementos = complementosByParent.get(item.parentCode);
     if (!complementos || !complementos.length) {
-      // Não ter linhas Tipo=COMPLEMENTO é perfeitamente normal para um
-      // produto simples (bebida, sobremesa avulsa etc.) que também não tem
-      // nenhuma opção no iFood. Antes esses produtos eram mostrados como
-      // "sem linha na planilha", mesmo com o código pai/PRATO correto.
-      // Só há algo para revisar quando o produto POSSUI opções no iFood mas
-      // a planilha não traz nenhum complemento vinculado ao código pai.
-      if (item.options && item.options.length > 0) semPlanilha.push(item);
+      semPlanilha.push(item);
       continue;
     }
 
@@ -685,71 +573,15 @@ function ifpsMatchAgainstSaipos(index, saiposRowsRaw) {
 
     const usedOptionIds = new Set();
     const pairs = [];
-
-    // Primeiro tenta comprovar os códigos que JÁ estão nos campos usando a
-    // planilha inteira. Fazemos isso só quando o mesmo sufixo não existe nas
-    // linhas do pai atual (essas já serão tratadas normalmente logo abaixo)
-    // e apenas quando nome + grupo atingem confiança alta. Assim preservamos
-    // códigos globais legítimos sem transformar mera coincidência num
-    // "já correto" falso.
-    const localIfoodCodes = new Set(
-      complementos
-        .map((row) => ifpsBuildIfoodCode(row['Código Saipos']))
-        .filter(Boolean)
-        .map((code) => code.toLowerCase())
-    );
-    for (const opt of item.options) {
-      const currentKey = String(opt.currentValue || '').trim().toLowerCase();
-      if (!currentKey || localIfoodCodes.has(currentKey)) continue;
-
-      const globalRows = complementosByIfoodCode.get(currentKey) || [];
-      for (const globalRow of globalRows) {
-        const parsed = ifpsParseComplementoField(globalRow['Complemento']);
-        if (ifpsCategoriesConflict(parsed, opt.groupHeading)) continue;
-        const score = ifpsScoreMatch(parsed, opt.optionName, opt.groupHeading, itemSizeTag);
-        if (score < IFPS_CONFIDENCE.HIGH) continue;
-
-        pairs.push({
-          compRow: globalRow,
-          parsed,
-          newCode: ifpsBuildIfoodCode(globalRow['Código Saipos']),
-          opt,
-          score,
-          exactCurrentCode: true,
-          globalCurrentMatch: true,
-        });
-      }
-    }
-
     for (const compRow of complementos) {
       const parsed = ifpsParseComplementoField(compRow['Complemento']);
       const newCode = ifpsBuildIfoodCode(compRow['Código Saipos']);
       for (const opt of item.options) {
-        // Um código que já coincide exatamente com a linha da planilha é
-        // uma prova mais forte que qualquer semelhança de nome. Guardamos
-        // esse sinal para reservar esses pares antes do casamento fuzzy —
-        // assim um empate (inclusive score zero) nunca consegue inverter
-        // duas opções que já estavam preenchidas corretamente no iFood.
-        const exactCurrentCode = !!(
-          newCode &&
-          opt.currentValue &&
-          newCode.toLowerCase() === opt.currentValue.trim().toLowerCase()
-        );
-        // Se os dois lados têm categorias reconhecíveis e incompatíveis
-        // (ex.: BEBIDA x BORDA), esse par não é uma alternativa plausível.
-        // Código atual exatamente igual continua prevalecendo, pois é uma
-        // evidência mais forte e também protege contra eventual título de
-        // grupo lido incorretamente pelo portal.
-        if (ifpsCategoriesConflict(parsed, opt.groupHeading) && !exactCurrentCode) continue;
-
         const score = ifpsScoreMatch(parsed, opt.optionName, opt.groupHeading, itemSizeTag);
-        pairs.push({ compRow, parsed, newCode, opt, score, exactCurrentCode });
+        pairs.push({ compRow, parsed, newCode, opt, score });
       }
     }
-    pairs.sort((a, b) => {
-      const exactDiff = Number(b.exactCurrentCode) - Number(a.exactCurrentCode);
-      return exactDiff || b.score - a.score;
-    });
+    pairs.sort((a, b) => b.score - a.score);
 
     const assignedSaiposRow = new Set();
     const rowsForItem = [];
@@ -791,10 +623,7 @@ function ifpsMatchAgainstSaipos(index, saiposRowsRaw) {
       // conferir com seus próprios olhos (em vez de sumir na pilha dos
       // "já corretos" comuns) — é uma inferência a mais em cima de duas
       // linhas parecidas da planilha, então vale um olhar rápido.
-      const nomeSuspeito =
-        (jaCorreto && pair.score < IFPS_CONFIDENCE.HIGH) ||
-        jaCorretoViaDuplicata ||
-        !!pair.globalCurrentMatch;
+      const nomeSuspeito = (jaCorreto && pair.score < IFPS_CONFIDENCE.HIGH) || jaCorretoViaDuplicata;
       const confidence = jaCorreto || jaCorretoViaDuplicata ? 'correto' : ifpsClassify(pair.score);
 
       rowsForItem.push({
@@ -820,11 +649,10 @@ function ifpsMatchAgainstSaipos(index, saiposRowsRaw) {
         confidence,
         nomeSuspeito,
         duplicataDe,
-        codigoGlobalReutilizado: !!pair.globalCurrentMatch,
         // "já correto" nunca mostra o menu de alternativas na revisão, então
         // nem guardamos essa lista pra ele — é o que mais pesava no relatório
         // (o mesmo grupo de opções repetido em cada linha correta).
-        alternativas: confidence === 'correto' ? [] : ifpsSaiposAlternativasFor(complementos),
+        alternativas: confidence === 'correto' ? [] : ifpsAlternativasFor(item, pair.opt.optionid, pair.opt.groupHeading),
       });
     }
 
@@ -843,15 +671,11 @@ function ifpsMatchAgainstSaipos(index, saiposRowsRaw) {
     flatRows.push(...rowsForItem);
   }
 
-  const produtosPaiMatch = ifpsMatchProdutosPai(index, saiposRows, () => rowId++);
+  const produtosPai = ifpsMatchProdutosPai(index, saiposRows, () => rowId++);
 
   return {
     rows: flatRows,
-    produtosPai: produtosPaiMatch.rows,
-    // Pool compartilhado, guardado uma única vez no relatório. Antes cada
-    // linha levava até 60 alternativas próprias; além de cortar o Excel,
-    // isso repetia os mesmos dados dezenas de vezes no storage da extensão.
-    produtosPaiAlternativas: produtosPaiMatch.alternativas,
+    produtosPai,
     semPlanilha: semPlanilha.map((i) => ({ itemName: i.itemName, parentCode: i.parentCode, itemInativo: i.inativo })),
     semCodigoPai: semCodigoPai.map((i) => ({ itemName: i.itemName, itemInativo: i.inativo })),
     semOpcaoNoIfood,
@@ -867,20 +691,7 @@ function ifpsMatchAgainstSaipos(index, saiposRowsRaw) {
 // casado ou não.
 function ifpsMatchProdutosPai(index, saiposRows, nextRowId) {
   const pratoRows = saiposRows.filter((r) => String(r['Tipo']).trim().toUpperCase() === 'PRATO');
-  if (!pratoRows.length) return { rows: [], alternativas: [] };
-
-  // Lista integral dos produtos pai ativos do Excel. Fica fora das linhas
-  // individuais porque é a mesma para todo item do iFood; assim podemos
-  // disponibilizar centenas de produtos sem multiplicar o peso do relatório.
-  const alternativas = pratoRows
-    .map((row) => ({
-      codigo: String(row['Código Saipos'] || '').trim(),
-      descricao: row['Descrição'] || '',
-    }))
-    .sort((a, b) => {
-      const nameDiff = a.descricao.localeCompare(b.descricao, 'pt-BR');
-      return nameDiff || a.codigo.localeCompare(b.codigo, 'pt-BR');
-    });
+  if (!pratoRows.length) return [];
 
   // O código pai atual pode apontar pra uma linha da planilha que NÃO é
   // Tipo=PRATO (ex: um combo tipo "Monte a sua pizza" ou "Pizzas Brotos -
@@ -891,25 +702,16 @@ function ifpsMatchProdutosPai(index, saiposRows, nextRowId) {
   // como válido. Sem esse mapa "de qualquer tipo", o item caía incorretamente
   // em "sem correspondência" (Criar no Saipos) mesmo já tendo um código pai
   // certo, só porque a busca só olhava pratRows.
-  const anyRowsByCode = new Map();
+  const anyRowByCode = new Map();
   for (const row of saiposRows) {
     const code = String(row['Código Saipos'] || '').trim();
-    if (!code) continue;
-    if (!anyRowsByCode.has(code)) anyRowsByCode.set(code, []);
-    anyRowsByCode.get(code).push(row);
+    if (code && !anyRowByCode.has(code)) anyRowByCode.set(code, row);
   }
 
   const produtosPai = [];
   for (const item of index.values()) {
     const currentCode = item.parentCode || '';
-    // Se houver linhas duplicadas com o mesmo código, usa a descrição que
-    // melhor explica o nome do item, em vez de aceitar cegamente a primeira
-    // ocorrência do Excel.
-    const currentCandidates = currentCode ? anyRowsByCode.get(currentCode) || [] : [];
-    const currentRanked = currentCandidates
-      .map((row) => ({ row, score: ifpsScoreProduto(item.itemName, row['Descrição']) }))
-      .sort((a, b) => b.score - a.score);
-    const currentRow = currentRanked.length ? currentRanked[0].row : null;
+    const currentRow = currentCode ? anyRowByCode.get(currentCode) : null;
 
     const scored = pratoRows
       .map((row) => ({ row, score: ifpsScoreProduto(item.itemName, row['Descrição']) }))
@@ -918,56 +720,20 @@ function ifpsMatchProdutosPai(index, saiposRows, nextRowId) {
     // Calculado à parte de `scored` (que só cobre o pool PRATO) — assim
     // funciona mesmo quando currentRow é de outro Tipo e nunca apareceria
     // ali.
-    const currentScore = currentRanked.length ? currentRanked[0].score : -Infinity;
-
-    // A Descrição da linha do código atual pode seguir a convenção
-    // "CATEGORIA - NOME" (ex: "Afoga Borda - Pesto de Azeitona Preta") — se
-    // o prefixo bater com a categoria do item no iFood, é um sinal mais
-    // confiável do que a semelhança de texto pura (ver comentário de
-    // ifpsParsePratoDescricao/ifpsCategoriaMatchesPrefix em matching.js):
-    // trata como certo direto, sem disputar pontuação de texto com outra
-    // linha que só por acaso tem um nome mais "limpo".
-    const currentPratoParsed = currentRow ? ifpsParsePratoDescricao(currentRow['Descrição']) : null;
-    const currentCategoriaBate = !!(
-      currentRow &&
-      item.categoryName &&
-      currentPratoParsed &&
-      ifpsCategoriaMatchesPrefix(item.categoryName, currentPratoParsed.prefix)
-    );
+    const currentScore = currentRow ? ifpsScoreProduto(item.itemName, currentRow['Descrição']) : -Infinity;
 
     // "Já correto" quando (a) o próprio prato do código atual É o que
     // melhor bate com o nome do item — não existe pra onde sugerir trocar,
     // então não faz sentido nenhum listar isso como "para revisar" com um
     // checkbox que não teria o que aplicar (foi visto ao vivo: linha "para
     // revisar" com o mesmo código sugerido E atual, checkbox sempre
-    // desabilitado, sem forma de marcar); (b) o prefixo "CATEGORIA - NOME"
-    // da descrição do código atual bate com a categoria do item no iFood
-    // (ver acima); ou (c) o código existe na planilha e o nome tem ao menos
-    // confiança média. Nesse último caso, a coincidência exata do código é
-    // a evidência principal e o texto serve para impedir que um código de
-    // produto claramente diferente seja aceito como correto.
-    const currentNamesConflict = !!(
-      currentRow && ifpsProductNamesClearlyConflict(item.itemName, currentRow['Descrição'])
-    );
-    const bestIsCurrent = !!currentRow && best.row === currentRow && !currentNamesConflict;
-    const currentCodeNameCompatible = !!(
-      currentRow &&
-      currentScore >= IFPS_CONFIDENCE.MEDIUM &&
-      !currentNamesConflict
-    );
-    // Para produto pai, uma coincidência EXATA do código atual com qualquer
-    // linha ativa da planilha é a prova principal. O nome pode ser mais
-    // comercial no iFood e mais genérico no Saipos (caso real: "Monster
-    // Ultra White" x "Energético Lata 473ml"). Antes o conflito de nomes
-    // anulava o código exato e jogava o produto em "sem correspondência".
-    // Mantemos a diferença de nome só como aviso visual (`nomeSuspeito`),
-    // nunca como motivo para sugerir a troca de um PDV que já existe.
-    const currentCodeExists = currentCandidates.length > 0;
+    // desabilitado, sem forma de marcar) — ou (b) o código atual bate bem
+    // (confiança alta) e nenhum outro prato bate NITIDAMENTE melhor (mesmo
+    // critério de desempate usado nos complementos).
+    const bestIsCurrent = !!currentRow && best.row === currentRow;
     const jaCorreto =
-      currentCodeExists ||
       bestIsCurrent ||
-      currentCategoriaBate ||
-      currentCodeNameCompatible;
+      (!!currentRow && currentScore >= IFPS_CONFIDENCE.HIGH && best.score - currentScore < 0.15);
 
     let chosen = null;
     let novoCodigo = '';
@@ -992,7 +758,13 @@ function ifpsMatchProdutosPai(index, saiposRows, nextRowId) {
     // melhor candidato que existe — pode ser só uma diferença de descrição,
     // mas também pode ser um código pai digitado errado sem prato
     // correspondente cadastrado na planilha.
-    const nomeSuspeito = jaCorreto && !currentCodeNameCompatible && (best.row !== currentRow || currentScore < IFPS_CONFIDENCE.HIGH);
+    const nomeSuspeito = jaCorreto && (best.row !== currentRow || currentScore < IFPS_CONFIDENCE.HIGH);
+
+    const alternativas = scored
+      .filter((s) => s.row !== chosen)
+      .slice(0, IFPS_MAX_ALTERNATIVAS)
+      .map((s) => ({ codigo: String(s.row['Código Saipos'] || '').trim(), descricao: s.row['Descrição'] || '' }))
+      .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
 
     // Quantos complementos (e em quantos grupos, tipo "Tamanho"/"Sabores"/
     // "Adicionais") esse item tem no iFood — importante saber ANTES de criar
@@ -1019,48 +791,27 @@ function ifpsMatchProdutosPai(index, saiposRows, nextRowId) {
       inputId: item.inputId,
       itemid: item.itemid,
       optionid: item.isPizza ? item.pizzaParentOptionid : '',
-      isPizza: !!item.isPizza,
       score: ifpsDisplayScore(displayScore),
       confidence,
       nomeSuspeito,
       semCorrespondencia: !chosen,
+      alternativas,
       qtdComplementos: (item.options || []).length,
       gruposComplementos,
     });
   }
 
-  return { rows: produtosPai, alternativas };
+  return produtosPai;
 }
 
 // ---------- Etapa 4: aplicar (a pedido da aba de revisão) ----------
 
-async function ifpsSetInputValueReact(input, value) {
+function ifpsSetInputValueReact(input, value) {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  input.scrollIntoView({ block: 'center', inline: 'nearest' });
-  input.focus({ preventScroll: true });
-  input.select();
-
-  // Primeiro tenta a mesma rota de edição usada pelo navegador ao inserir
-  // texto num campo selecionado. Ela aciona o input nativo e costuma ser
-  // mais confiável em campos controlados pelo React do que alterar apenas a
-  // propriedade value. Se o navegador recusar, cai no setter nativo.
-  let insertedNatively = false;
-  try {
-    insertedNatively = document.execCommand('insertText', false, value) && input.value === value;
-  } catch (err) {
-    insertedNatively = false;
-  }
-  if (!insertedNatively) {
-    setter.call(input, value);
-  }
-  // Mesmo quando insertText altera o valor visível, dispara explicitamente
-  // o evento que o campo controlado do iFood usa para registrar a edição.
-  // Isso é importante nas novas tentativas, quando o texto já pode estar no
-  // input, mas a gravação anterior não chegou ao servidor.
-  const inputEvent = typeof InputEvent === 'function'
-    ? new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: value })
-    : new Event('input', { bubbles: true });
-  input.dispatchEvent(inputEvent);
+  input.focus();
+  setter.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
 
   // O PDV do iFood só dispara a chamada real de salvamento (POST/PUT em
   // .../menu/v4/external-code) quando o campo recebe também eventos de
@@ -1072,54 +823,8 @@ async function ifpsSetInputValueReact(input, value) {
   // sucesso" e nas chamadas de rede).
   input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: value.slice(-1) }));
   input.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: value.slice(-1) }));
-  await ifpsSleep(80);
-  input.dispatchEvent(new Event('change', { bubbles: true }));
 
-  // O comportamento que já funcionava em lotes era sair para OUTRO campo
-  // PDV. O campo de busca não passa pelo mesmo fluxo de formulário do iFood
-  // e podia deixar o código apenas visível, sem persistir no servidor.
-  const pdvInputs = [...document.querySelectorAll(
-    'input[data-testid="item-pdv-input"], input[data-testid="option-pdv-input"]'
-  )].filter((candidate) => !candidate.disabled);
-  const currentIndex = pdvInputs.indexOf(input);
-  const realNextFocus =
-    (currentIndex >= 0 && pdvInputs[currentIndex + 1]) ||
-    pdvInputs.find((candidate) => candidate !== input);
-  if (realNextFocus && realNextFocus !== input) {
-    realNextFocus.focus({ preventScroll: true });
-    if (document.activeElement === input) input.blur();
-    await ifpsSleep(100);
-    return;
-  }
-
-  // Para uma página com somente um campo PDV, usa a busca real como segunda
-  // opção de click-away antes do elemento auxiliar invisível.
-  const searchInput = document.querySelector('input[placeholder="Buscar um item"]');
-  if (searchInput && searchInput !== input) {
-    searchInput.focus({ preventScroll: true });
-    if (document.activeElement === input) input.blur();
-    await ifpsSleep(100);
-    return;
-  }
-
-  await ifpsSleep(30);
-  const focusSink = document.createElement('button');
-  focusSink.type = 'button';
-  focusSink.tabIndex = -1;
-  focusSink.setAttribute('aria-hidden', 'true');
-  focusSink.style.cssText =
-    'position:fixed;left:-10000px;top:-10000px;width:1px;height:1px;opacity:0;pointer-events:none;';
-  document.body.appendChild(focusSink);
-  try {
-    focusSink.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-    focusSink.focus({ preventScroll: true });
-    focusSink.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    focusSink.click();
-    if (document.activeElement === input) input.blur();
-    await ifpsSleep(80);
-  } finally {
-    focusSink.remove();
-  }
+  input.blur();
 }
 
 // O id de elemento capturado durante a varredura pode não existir mais na
@@ -1129,106 +834,34 @@ async function ifpsSetInputValueReact(input, value) {
 // quando nada mudou; (2) os atributos itemid/optionid, que são estáveis e
 // vêm do próprio iFood; (3) rolar a página inteira procurando por esses
 // atributos, caso a linha esteja fora da área renderizada no momento.
-// Confere se o elemento achado por getElementById(row.inputId) ainda é
-// mesmo o campo que a linha diz que é, antes de escrever nele. Necessário
-// porque a lista do PDV é virtualizada: o React desmonta/remonta linhas
-// conforme você rola a página e RECICLA os elementos DOM (e o id deles) pra
-// renderizar outras linhas depois. O id capturado lá atrás, na varredura,
-// pode já pertencer a outro campo na hora de aplicar — inclusive o campo de
-// CÓDIGO PAI (item-pdv-input) de um produto totalmente diferente — se algum
-// tempo (rolagem, revisão numa aba separada) passou entre as duas etapas.
-// Bug real visto ao vivo: aplicar uma linha de complemento de pizza também
-// sobrescrevia o código pai de outro item, porque o id antigo tinha sido
-// reciclado pro campo errado. Sem essa checagem, getElementById aceita
-// QUALQUER elemento com aquele id, seja ele item-pdv-input ou
-// option-pdv-input, do item certo ou não.
-function ifpsElementMatchesRow(el, row) {
-  if (!el) return false;
-  const expectedTestId = row.optionid || row.isPizza ? 'option-pdv-input' : 'item-pdv-input';
-  if (el.getAttribute('data-testid') !== expectedTestId) return false;
-  if (row.itemid && el.getAttribute('itemid') !== row.itemid) return false;
-  if (row.optionid && el.getAttribute('optionid') !== row.optionid) return false;
-  return true;
-}
-
-// Localiza um campo que já esteja renderizado. Produtos normais possuem
-// item-pdv-input. Pizzas guardam o código pai numa option-pdv-input do grupo
-// Tamanho; quando o optionid não foi preservado, usamos o valor atual, o
-// título do grupo ou o único campo do grupo como alternativas seguras.
-function ifpsFindRenderedInput(row) {
-  if (!row.itemid) return null;
-
-  if (row.optionid) {
-    return document.querySelector(
-      `input[data-testid="option-pdv-input"][itemid="${CSS.escape(row.itemid)}"][optionid="${CSS.escape(row.optionid)}"]`
-    );
-  }
-
-  if (!row.isPizza) {
-    return document.querySelector(`input[data-testid="item-pdv-input"][itemid="${CSS.escape(row.itemid)}"]`);
-  }
-
-  const candidates = [
-    ...document.querySelectorAll(`input[data-testid="option-pdv-input"][itemid="${CSS.escape(row.itemid)}"]`),
-  ];
-  if (!candidates.length) return null;
-
-  const codigoAtual = String(row.codigoAtual || '').trim();
-  if (codigoAtual) {
-    const byCurrentValue = candidates.find((input) => String(input.value || '').trim() === codigoAtual);
-    if (byCurrentValue) return byCurrentValue;
-  }
-  if (candidates.length === 1) return candidates[0];
-
-  const headings = [...document.querySelectorAll(IFPS_CONFIG.groupHeadingSelector)]
-    .map((h) => ({ text: (h.innerText || '').trim(), rect: h.getBoundingClientRect() }))
-    .filter((h) => h.text && !IFPS_HEADING_BADGE_RE.test(h.text));
-  const tamanho = candidates.find((input) => /tamanho/i.test(ifpsGroupHeadingForInput(input, headings)));
-  if (tamanho) return tamanho;
-
-  const byGroup = new Map();
-  for (const input of candidates) {
-    const groupid = input.getAttribute('groupid') || '';
-    if (!byGroup.has(groupid)) byGroup.set(groupid, []);
-    byGroup.get(groupid).push(input);
-  }
-  for (const groupInputs of byGroup.values()) {
-    if (groupInputs.length === 1) return groupInputs[0];
-  }
-  return null;
-}
-
 async function ifpsFindInputElement(row) {
   if (row.inputId) {
     const byId = document.getElementById(row.inputId);
-    // Só confia no id capturado na varredura se ele ainda apontar pro campo
-    // certo agora — ver comentário de ifpsElementMatchesRow. Quando o id foi
-    // reciclado pra outro elemento (ou quando a linha não tem itemid/optionid
-    // pra conferir, ex: nenhum dos dois informado), cai pro método seguro
-    // abaixo em vez de escrever no campo errado.
-    if (byId && (ifpsElementMatchesRow(byId, row) || (!row.itemid && !row.optionid))) return byId;
+    if (byId) return byId;
   }
 
   if (!row.itemid) return null;
-  let el = ifpsFindRenderedInput(row);
+  // Linhas de complemento (e o campo "Tamanho" de itens tipo pizza) sempre
+  // têm optionid — usam o seletor de option-pdv-input. Já o código pai de um
+  // item normal (linha da comparação "produtos pai") é o próprio
+  // item-pdv-input, que não tem optionid nenhum.
+  const sel = row.optionid
+    ? `input[data-testid="option-pdv-input"][itemid="${CSS.escape(row.itemid)}"][optionid="${CSS.escape(row.optionid)}"]`
+    : `input[data-testid="item-pdv-input"][itemid="${CSS.escape(row.itemid)}"]`;
+
+  let el = document.querySelector(sel);
   if (el) return el;
 
   let lastHeight = -1;
   let stableRounds = 0;
   for (let i = 0; i < 60 && !el; i++) {
-    // Mesmo contêiner de rolagem real usado no scan (ver ifpsScrollState) —
-    // sem isso, procurar um campo mais pra baixo na lista (item fora da área
-    // já renderizada) nunca rolava de verdade e a busca desistia achando que
-    // já tinha chegado ao fim.
-    const scroll = ifpsScrollState();
-    scroll.scrollBy(Math.round(scroll.viewportSize * 0.8));
+    window.scrollBy(0, Math.round(window.innerHeight * 0.8));
     await ifpsSleep(180);
-    el = ifpsFindRenderedInput(row);
+    el = document.querySelector(sel);
     if (el) break;
 
-    const after = ifpsScrollState();
-    const atBottom = after.atBottom;
-    const h = after.height;
+    const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - 4;
+    const h = document.body.scrollHeight;
     if (atBottom && h === lastHeight) {
       stableRounds++;
       if (stableRounds >= 2) break;
@@ -1251,27 +884,9 @@ async function ifpsFindInputElement(row) {
 const IFPS_TOAST_BODY_SELECTOR = '.Toastify__toast-body';
 const IFPS_TOAST_CLOSE_SELECTOR = '.Toastify__close-button';
 const IFPS_ERRO_TOAST_RE = /erro ao atualizar o pdv do item/i;
-const IFPS_SUCESSO_TOAST_RE = /pdv atualizado com sucesso/i;
 
 function ifpsIfoodErrorToastPresent() {
   return [...document.querySelectorAll(IFPS_TOAST_BODY_SELECTOR)].some((el) => IFPS_ERRO_TOAST_RE.test(el.innerText || ''));
-}
-
-function ifpsIfoodSuccessToastPresent() {
-  return [...document.querySelectorAll(IFPS_TOAST_BODY_SELECTOR)].some((el) => IFPS_SUCESSO_TOAST_RE.test(el.innerText || ''));
-}
-
-// O valor permanecer no input só prova que o React atualizou a tela; não
-// prova que o backend do iFood salvou. Esperamos a resposta visual oficial
-// do portal e usamos o toast verde/vermelho como confirmação da requisição.
-async function ifpsWaitForIfoodSaveFeedback(timeoutMs = 1800) {
-  const intervalMs = 100;
-  for (let waited = 0; waited <= timeoutMs; waited += intervalMs) {
-    if (ifpsIfoodErrorToastPresent()) return 'error';
-    if (ifpsIfoodSuccessToastPresent()) return 'success';
-    if (waited < timeoutMs) await ifpsSleep(intervalMs);
-  }
-  return 'timeout';
 }
 
 // Fecha todo toast do iFood que estiver na tela — usado (a) antes de começar
@@ -1294,72 +909,45 @@ function ifpsDismissAllIfoodToasts() {
 // Pausa extra entre uma aplicação e a próxima (além do tempo que
 // ifpsApplyRow já espera a chamada de salvamento terminar) — dá mais fôlego
 // pro iFood não recusar por excesso de chamadas em sequência.
-const IFPS_APPLY_ROW_GAP_MS = 100;
+const IFPS_APPLY_ROW_GAP_MS = 900;
 // Se mesmo assim o iFood recusar (toast de erro, valor não gravado), tenta
 // de novo algumas vezes com espera crescente antes de desistir da linha.
-const IFPS_APPLY_MAX_ATTEMPTS = 2;
-const IFPS_APPLY_RETRY_BASE_MS = 350;
+const IFPS_APPLY_MAX_ATTEMPTS = 3;
+const IFPS_APPLY_RETRY_BASE_MS = 1600;
 
 async function ifpsApplyRow(row) {
   if (!row.novoCodigo) return { ok: false, reason: 'sem opção associada' };
 
-  console.info('[IFPS APPLY] iniciando ' + JSON.stringify({
-    rowId: row.rowId,
-    itemid: row.itemid || '',
-    optionid: row.optionid || '',
-    isPizza: !!row.isPizza,
-    novoCodigo: row.novoCodigo,
-  }));
   const input = await ifpsFindInputElement(row);
   if (!input) {
-    console.warn('[IFPS APPLY] campo não encontrado ' + JSON.stringify({ rowId: row.rowId, itemid: row.itemid || '' }));
     return {
       ok: false,
       reason: 'campo não encontrado na página mesmo após rolar tudo — verifique se o item ainda existe e tente de novo',
     };
   }
 
-  // Cada tentativa começa sem toast antigo. Assim um sucesso da linha
-  // anterior nunca é confundido com confirmação desta linha.
-  ifpsDismissAllIfoodToasts();
-  await ifpsSetInputValueReact(input, row.novoCodigo);
-  const feedback = await ifpsWaitForIfoodSaveFeedback();
+  ifpsSetInputValueReact(input, row.novoCodigo);
+  // Com os eventos de teclado, o iFood dispara a chamada de salvamento de
+  // verdade (antes não disparava nada, então 180ms bastava pra "parecer"
+  // aplicado). Agora tem uma requisição de rede real rolando — damos mais
+  // tempo pra ela terminar antes de conferir o valor.
+  await ifpsSleep(450);
 
   const stuck = input.value === row.novoCodigo;
   const invalid = input.getAttribute('aria-invalid') === 'true';
-  const erroToast = feedback === 'error';
+  const erroToast = ifpsIfoodErrorToastPresent();
   if (erroToast) ifpsDismissAllIfoodToasts();
 
-  // O portal nem sempre mostra o toast verde, mesmo quando a gravação foi
-  // concluída. Confirmado ao vivo: os códigos 41158316 e 41158328 deram
-  // `timeout`, permaneceram válidos no campo e continuaram lá depois de um
-  // F5 (portanto vieram novamente do servidor). Se não houve toast de erro,
-  // o valor permaneceu e o iFood não marcou o campo como inválido, a linha
-  // está aplicada; não devemos repetir a mesma gravação nem mostrar falha.
-  const acceptedWithoutToast = feedback === 'timeout' && stuck && !invalid;
-  const ok = stuck && !invalid && (feedback === 'success' || acceptedWithoutToast);
-  const confirmation = feedback === 'success' ? 'toast' : acceptedWithoutToast ? 'field' : '';
+  const ok = stuck && !invalid && !erroToast;
   const reason = ok
     ? ''
     : erroToast
     ? 'o iFood recusou a atualização (provável limite de velocidade do próprio portal)'
     : invalid
     ? 'campo marcado como inválido pelo iFood'
-    : feedback === 'timeout'
-    ? 'o iFood não confirmou o salvamento (o aviso verde não apareceu)'
     : 'valor não foi mantido';
 
-  console.info('[IFPS APPLY] resultado ' + JSON.stringify({
-    rowId: row.rowId,
-    feedback,
-    valorEsperado: row.novoCodigo,
-    valorNoCampo: input.value,
-    invalid,
-    confirmation,
-    ok,
-  }));
-
-  return { ok, reason, confirmation };
+  return { ok, reason };
 }
 
 // Tenta aplicar uma linha, e se falhar (toast de erro do iFood, valor não
@@ -1369,16 +957,6 @@ async function ifpsApplyRow(row) {
 async function ifpsApplyRowWithRetry(row) {
   let res;
   for (let attempt = 1; attempt <= IFPS_APPLY_MAX_ATTEMPTS; attempt++) {
-    try {
-      chrome.runtime.sendMessage({
-        type: 'IFPS_APPLY_PROGRESS',
-        rowId: row.rowId,
-        attempt,
-        maxAttempts: IFPS_APPLY_MAX_ATTEMPTS,
-      });
-    } catch (err) {
-      console.error('[iFood PDV Sync]', err);
-    }
     try {
       res = await ifpsApplyRow(row);
     } catch (err) {
@@ -1412,13 +990,7 @@ async function ifpsApplyRowsOnPage(rows) {
     // sempre em "Aplicando X/N...", parecendo que nada tinha acontecido.
     const res = await ifpsApplyRowWithRetry(row);
     try {
-      chrome.runtime.sendMessage({
-        type: 'IFPS_APPLY_RESULT',
-        rowId: row.rowId,
-        ok: res.ok,
-        reason: res.reason,
-        confirmation: res.confirmation || '',
-      });
+      chrome.runtime.sendMessage({ type: 'IFPS_APPLY_RESULT', rowId: row.rowId, ok: res.ok, reason: res.reason });
     } catch (err) {
       console.error('[iFood PDV Sync]', err);
     }
