@@ -1,29 +1,43 @@
-# PDV Sync (Saipos → iFood e 99Food)
+# PDV Sync — Saipos, iFood e 99Food
 
-Extensão para o Chrome que lê a planilha de "Códigos de integração" da Saipos,
-casa cada complemento com a opção correspondente no cardápio PDV do Portal do
-Parceiro iFood, e preenche os campos `x.XXXXX` — com uma etapa de revisão
-antes de qualquer escrita no seu cardápio.
+Extensão para Google Chrome que ajuda a manter os códigos de integração do
+PDV consistentes entre a planilha exportada pela Saipos e os cardápios do
+iFood e do 99Food.
 
-Também funciona no **Cardápio online do 99Food** para produtos: percorre as
-categorias, compara cada nome com as linhas `PRATO` da mesma planilha e, após
-revisão, usa a edição rápida da coluna **Código PDV** na aba **Itens**.
-Grupos de itens adicionais do 99Food ainda não são alterados.
+A extensão lê a planilha localmente, compara produtos e complementos pelo
+nome, apresenta as sugestões em uma tela de revisão e só altera o cardápio
+depois da confirmação do usuário. A ideia é reduzir o trabalho manual sem
+eliminar a conferência humana.
 
-## Como usar no 99Food
+> Projeto independente, sem vínculo oficial com Saipos, iFood ou 99Food.
 
-1. Abra `https://merchant.99app.com/pt-BR/manager/micro-merchandish/merchant-item/menu?tab=store-menu`.
-2. Abra a extensão, selecione a planilha Saipos e clique em **Verificar cardápio e sugerir códigos**.
-3. Aguarde a leitura automática de todas as categorias.
-4. Na aba de revisão, confira as sugestões. As de alta confiança já vêm marcadas. O botão **Selecionar todos** do topo controla todas as seções; a caixa do cabeçalho da primeira coluna controla somente sua própria seção (alta, média ou baixa). Produtos com volumes diferentes, como 350 ml e 2 litros, não são associados entre si.
-   Em qualquer linha, o campo **Buscar prato ou código Saipos** permite pesquisar manualmente entre todos os pratos ativos da planilha; ao escolher um resultado, a linha é atualizada e marcada automaticamente.
-5. Clique em **Aplicar selecionados** e confirme. Não use nem feche a aba do 99Food durante o lote.
-6. A extensão abre a aba **Itens**, pesquisa cada produto por nome e categoria e salva o Código PDV diretamente na lista. Falhas são informadas linha a linha sem travar o restante do lote.
+## O que a extensão faz
 
-Antes de abrir a revisão, o 99Food também tem suas páginas da aba **Itens**
-lidas. Produtos com um Código PDV já coerente com o prato da planilha ficam
-ocultos. Códigos preenchidos que apontam para um prato incompatível, ou que
-não existem na planilha ativa, continuam visíveis para correção.
+| Plataforma | Leitura e comparação | Alteração assistida |
+| --- | --- | --- |
+| iFood | Lê produtos, códigos pai, grupos e opções do Cardápio > PDV | Preenche os códigos selecionados de produtos e complementos |
+| 99Food | Percorre as categorias e compara os produtos com as linhas `PRATO` da planilha | Pesquisa cada produto na aba Itens e salva o Código PDV |
+| Saipos | Lê a planilha de integração e consulta as categorias em uma aba aberta | Permite criar, com confirmação individual, produtos ausentes |
+
+Principais recursos:
+
+- leitura de arquivos `.xlsx` e `.xls` diretamente no navegador;
+- comparação por nomes, abreviações, categorias, tamanhos e volumes;
+- sugestões separadas em alta, média ou baixa confiança;
+- identificação dos códigos que já estão corretos;
+- escolha manual quando a sugestão automática não for suficiente;
+- aplicação em lote com o resultado de cada linha;
+- exportação da revisão em CSV;
+- descarte das linhas marcadas como inativas na planilha.
+
+## Fluxo geral
+
+1. O usuário seleciona a planilha de códigos de integração da Saipos.
+2. A extensão valida as colunas e mantém os dados no armazenamento local do Chrome.
+3. No iFood ou no 99Food, ela percorre o cardápio e reúne os códigos atuais.
+4. Os nomes são normalizados e comparados com as linhas ativas da planilha.
+5. Uma nova aba mostra o que já está correto e o que precisa de revisão.
+6. Somente as linhas selecionadas e confirmadas são enviadas de volta ao portal.
 
 ## Como instalar (modo desenvolvedor)
 
@@ -33,7 +47,7 @@ não existem na planilha ativa, continuam visíveis para correção.
 4. Clique em "Carregar sem compactação" e selecione a pasta `ifood-pdv-sync`.
 5. O ícone da extensão vai aparecer na barra do Chrome.
 
-## Como usar
+## Como usar no iFood
 
 1. **Preencha primeiro os códigos PAI** de cada item no Portal iFood (aba
    Cardápio > PDV), do jeito que você já vem fazendo.
@@ -44,12 +58,9 @@ não existem na planilha ativa, continuam visíveis para correção.
    clique no ícone da extensão.
 4. Selecione o arquivo `.xlsx` da Saipos.
 5. Clique em **"Verificar cardápio e sugerir códigos"**.
-6. A extensão vai expandir automaticamente todos os "Complementos" da tela
-   (role a página até acabar — isso pode levar alguns segundos dependendo do
-   tamanho do cardápio) e depois **abrir uma aba nova**, própria da extensão
-   (`review.html`), com o resultado — a página do PDV do iFood continua
-   aberta em outra aba, mas a tela de revisão não roda dentro dela (fica bem
-   mais leve assim, já que o site do iFood sozinho já é pesado).
+6. A extensão percorre o cardápio, expande os grupos de complementos e abre
+   uma nova aba com o resultado. O tempo de leitura depende do tamanho do
+   cardápio.
 7. Na aba de revisão, os resultados vêm separados por etapa:
    - **Já corretos**: só a contagem aparece (nada pra revisar) — a menos que
      o código já bata mas o nome do complemento esteja muito diferente do da
@@ -59,8 +70,8 @@ não existem na planilha ativa, continuam visíveis para correção.
    - **Para revisar (confiança média)** e **Sem correspondência confiável**:
      não vêm marcados — escolha manualmente a opção certa num menu suspenso,
      marque a caixinha, ou ignore.
-   - Linhas da planilha com a coluna **"Inativo" = Inativo são descartadas
-     antes de qualquer comparação** (isso também deixa a lista de "sem
+   - Linhas da planilha com a coluna **"Inativo" = Inativo** são descartadas
+     antes de qualquer comparação (isso também deixa a lista de "sem
      correspondência" bem menor).
    - **"Exportar CSV"** a qualquer momento salva um relatório completo (bom
      para auditoria).
@@ -69,6 +80,33 @@ não existem na planilha ativa, continuam visíveis para correção.
      (sucesso/falha) aparece linha a linha, e um resumo final some no rodapé.
 8. Confira o cardápio depois de aplicar, como faria com qualquer edição em
    massa.
+
+Na aba **Criar no Saipos**, a extensão pode cadastrar um produto real com
+preço inicial de `0,00` e disponibilidade para Delivery. Cada criação exige
+uma confirmação própria. Complementos não são vinculados automaticamente ao
+novo produto e devem ser configurados depois no Saipos.
+
+## Como usar no 99Food
+
+1. Abra o Cardápio online em
+   `merchant.99app.com/pt-BR/manager/micro-merchandish/merchant-item/menu?tab=store-menu`.
+2. Abra a extensão, selecione a planilha da Saipos e clique em
+   **Verificar cardápio e sugerir códigos**.
+3. Aguarde a leitura automática das categorias e dos produtos.
+4. Revise as sugestões. As de alta confiança já vêm marcadas; as demais
+   ficam disponíveis para escolha manual.
+5. Se necessário, use **Buscar prato ou código Saipos** para escolher outro
+   produto da planilha.
+6. Clique em **Aplicar selecionados** e confirme.
+7. Não feche nem use a aba do 99Food enquanto o lote estiver em andamento.
+
+Antes de abrir a revisão, a extensão também consulta a aba **Itens**.
+Produtos cujo Código PDV já corresponde a um prato compatível são ocultados.
+Códigos ausentes, desconhecidos ou incompatíveis continuam visíveis para
+correção.
+
+Nesta versão, o 99Food recebe apenas o Código PDV dos produtos. Grupos de
+adicionais e complementos ainda não são alterados.
 
 ## Como funciona o casamento de nomes
 
@@ -95,6 +133,24 @@ extensão. Essa versão pediu uma permissão nova (`tabs`, para abrir a aba de
 revisão), então o Chrome pode pedir para você confirmar a permissão de novo —
 é esperado, é só aceitar.
 
+## Formato esperado da planilha
+
+A planilha deve conter, no mínimo, as colunas `Tipo`, `Categoria`,
+`Descrição`, `Complemento` e `Código Saipos`. As colunas `Tamanho`,
+`Preço`, `Pesável` e `Inativo` também são utilizadas quando estão
+disponíveis.
+
+## Privacidade e segurança
+
+- A planilha é processada localmente no navegador.
+- A extensão não possui servidor próprio e não envia a planilha para serviços externos.
+- A leitura e a comparação não alteram o cardápio.
+- A aplicação dos códigos exige seleção e confirmação do usuário.
+- A criação de produtos no Saipos exige confirmação separada para cada item.
+
+As permissões ficam restritas aos portais do iFood, 99Food e Saipos, além do
+armazenamento local necessário para levar os dados até a tela de revisão.
+
 ## Limitações e pontos de atenção
 
 - No iFood, a extensão funciona na página `portal.ifood.com.br/menu/list/pdv`.
@@ -110,3 +166,12 @@ revisão), então o Chrome pode pedir para você confirmar a permissão de novo 
   casamento de nomes acontecem inteiramente no seu computador.
 - Sempre revise as linhas amarelas e vermelhas manualmente — o matching é uma
   sugestão, não uma verdade absoluta.
+
+## Tecnologias
+
+- JavaScript, HTML e CSS;
+- Chrome Extensions Manifest V3;
+- SheetJS para leitura das planilhas;
+- armazenamento local e APIs de abas do Chrome.
+
+Versão atual: `1.3.6`.
