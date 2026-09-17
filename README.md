@@ -175,3 +175,7 @@ armazenamento local necessário para levar os dados até a tela de revisão.
 - armazenamento local e APIs de abas do Chrome.
 
 Versão atual: `1.3.6`.
+
+## Autoria
+
+Desenvolvido por [math7x](https://github.com/math7x).

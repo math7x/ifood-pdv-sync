@@ -3,6 +3,7 @@
   "name": "PDV Sync (Saipos → iFood e 99Food)",
   "version": "1.3.6",
   "description": "Casa os códigos da planilha Saipos com os cardápios do iFood e 99Food, com revisão antes de aplicar.",
+  "author": "math7x",
   "permissions": ["activeTab", "scripting", "storage", "tabs", "unlimitedStorage"],
   "host_permissions": ["https://portal.ifood.com.br/*", "https://merchant.99app.com/*", "https://conta.saipos.com/*"],
   "background": {
