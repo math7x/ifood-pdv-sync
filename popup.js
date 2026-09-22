@@ -14,6 +14,7 @@ let parsedRows = null;
 const REQUIRED_COLUMNS = ['Tipo', 'Categoria', 'Descrição', 'Complemento', 'Código Saipos'];
 
 function platformFromUrl(url) {
+  if (/^https:\/\/(?:dashboard\.goomer\.app\/stores\/\d+\/menu-new|[^/]+\.dashboard-abrahao\.goomer\.app\/cardapio\/)/.test(String(url || ''))) return 'goomer';
   if (String(url || '').startsWith('https://portal.ifood.com.br/menu/list/pdv')) return 'ifood';
   if (/^https:\/\/merchant\.99app\.com\/pt-BR\/manager\/micro-merchandish\/merchant-item\/menu(?:\?|$)/.test(String(url || ''))) return '99food';
   return '';
@@ -22,7 +23,11 @@ function platformFromUrl(url) {
 async function refreshPlatformCopy() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const platform = platformFromUrl(tab && tab.url);
-  if (platform === '99food') {
+  if (platform === 'goomer') {
+    platformText.textContent = 'Compare produtos pai e complementos da Goomer com o Excel da Saipos, com sugestões por nome e revisão antes de aplicar.';
+    step2Label.textContent = '2. Mantenha o cardápio da Goomer aberto';
+    startHint.textContent = 'A leitura não altera o cardápio. Revise as sugestões na nova aba antes de aplicar.';
+  } else if (platform === '99food') {
     platformText.textContent = 'Casa os produtos da planilha Saipos com o cardápio online do 99Food e preenche o Código PDV após sua revisão.';
     step2Label.textContent = '2. Confirme que está no Cardápio online do 99Food';
     startHint.textContent = 'Nesta etapa a extensão apenas lê categorias e produtos. Os códigos só serão enviados depois da sua confirmação na tela de revisão.';
@@ -95,7 +100,7 @@ btnStart.addEventListener('click', async () => {
     if (!tab || !platform) {
       showStatus(
         runStatus,
-        'Abra o Cardápio > PDV do iFood ou o Cardápio online do 99Food antes de clicar aqui.',
+        'Abra o Cardápio > PDV do iFood, o Cardápio online do 99Food ou o cardápio da Goomer antes de clicar aqui.',
         'err'
       );
       btnStart.disabled = false;
@@ -104,11 +109,12 @@ btnStart.addEventListener('click', async () => {
 
     await chrome.storage.local.set({ ifpsSaiposRows: parsedRows, ifpsSavedAt: Date.now() });
 
-    await chrome.tabs.sendMessage(tab.id, { type: 'IFPS_START' });
+    const response = await chrome.tabs.sendMessage(tab.id, { type: platform === 'goomer' ? 'GOOMER_START' : 'IFPS_START' });
+    if (response && response.error) throw new Error(response.error);
 
     showStatus(
       runStatus,
-      platform === '99food'
+      platform === 'goomer' ? 'Lendo a Goomer. A revisão abrirá em outra aba; acompanhe a leitura nela.' : platform === '99food'
         ? 'Lendo as categorias e os produtos do 99Food... Uma aba de revisão vai abrir sozinha quando terminar.'
         : 'Processando na página do PDV (expandindo complementos e comparando com a planilha)... Isso pode levar alguns segundos. Uma aba nova vai abrir sozinha quando terminar — você pode fechar este popup, o processo continua rodando.',
       'ok'
@@ -117,7 +123,7 @@ btnStart.addEventListener('click', async () => {
     console.error(err);
     showStatus(
       runStatus,
-      'Não consegui falar com a página do PDV. Recarregue a aba do portal iFood e tente de novo.',
+      'Não consegui iniciar: ' + err.message + '. Recarregue a extensão e a aba do cardápio e tente novamente.',
       'err'
     );
   } finally {

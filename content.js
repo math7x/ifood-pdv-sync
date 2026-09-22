@@ -487,9 +487,7 @@ async function ifpsScanAndCapture() {
 
 // ---------- Etapa 3: casar com a planilha Saipos ----------
 
-const IFPS_MAX_ALTERNATIVAS = 60;
-
-// Lista de opções alternativas pra popular o menu suspenso de correção manual
+// Lista de opções alternativas pra popular o campo pesquisável de correção manual
 // na aba de revisão. Antes pegava as primeiras opções do item MISTURANDO
 // todos os grupos de complemento dele (Tamanho, Sabores, Bordas, Adicionais
 // etc.) e cortava em 25 — então num item com grupo de Sabores grande (pizza
@@ -508,7 +506,6 @@ function ifpsAlternativasFor(item, excludeOptionId, preferredGroupHeading) {
   return list
     .slice()
     .sort((a, b) => a.optionName.localeCompare(b.optionName, 'pt-BR'))
-    .slice(0, IFPS_MAX_ALTERNATIVAS)
     .map((o) => ({ optionName: o.optionName, groupHeading: o.groupHeading, inputId: o.inputId, optionid: o.optionid }));
 }
 
@@ -631,6 +628,7 @@ function ifpsMatchAgainstSaipos(index, saiposRowsRaw) {
         itemName: item.itemName,
         categoriaIfood: item.categoryName || '',
         saiposDescricao: pair.compRow['Descrição'] || '',
+        saiposCategoria: pair.compRow['Categoria'] || '',
         parentCode: item.parentCode,
         itemInativo: item.inativo,
         saiposNome: pair.compRow['Complemento'],
@@ -714,13 +712,13 @@ function ifpsMatchProdutosPai(index, saiposRows, nextRowId) {
     const currentRow = currentCode ? anyRowByCode.get(currentCode) : null;
 
     const scored = pratoRows
-      .map((row) => ({ row, score: ifpsScoreProduto(item.itemName, row['Descrição']) }))
+      .map((row) => ({ row, score: ifpsScoreProdutoComCategoria(item.itemName, row['Descrição'], item.categoryName, row['Categoria']) }))
       .sort((a, b) => b.score - a.score);
     const best = scored[0];
     // Calculado à parte de `scored` (que só cobre o pool PRATO) — assim
     // funciona mesmo quando currentRow é de outro Tipo e nunca apareceria
     // ali.
-    const currentScore = currentRow ? ifpsScoreProduto(item.itemName, currentRow['Descrição']) : -Infinity;
+    const currentScore = currentRow ? ifpsScoreProdutoComCategoria(item.itemName, currentRow['Descrição'], item.categoryName, currentRow['Categoria']) : -Infinity;
 
     // "Já correto" quando (a) o próprio prato do código atual É o que
     // melhor bate com o nome do item — não existe pra onde sugerir trocar,
@@ -762,8 +760,7 @@ function ifpsMatchProdutosPai(index, saiposRows, nextRowId) {
 
     const alternativas = scored
       .filter((s) => s.row !== chosen)
-      .slice(0, IFPS_MAX_ALTERNATIVAS)
-      .map((s) => ({ codigo: String(s.row['Código Saipos'] || '').trim(), descricao: s.row['Descrição'] || '' }))
+      .map((s) => ({ codigo: String(s.row['Código Saipos'] || '').trim(), descricao: s.row['Descrição'] || '', categoria: s.row['Categoria'] || '' }))
       .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
 
     // Quantos complementos (e em quantos grupos, tipo "Tamanho"/"Sabores"/
@@ -787,6 +784,7 @@ function ifpsMatchProdutosPai(index, saiposRows, nextRowId) {
       itemInativo: item.inativo,
       codigoAtual: currentCode,
       pratoNome: chosen ? chosen['Descrição'] || '' : '',
+      pratoCategoria: chosen ? chosen['Categoria'] || '' : '',
       novoCodigo,
       inputId: item.inputId,
       itemid: item.itemid,

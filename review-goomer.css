@@ -1,0 +1,3 @@
+.goomer-note { color:#edc978; max-width:310px; margin-top:6px; font-size:11px; }
+.goomer-note:empty { display:none; }
+.goomer-scroll { overflow-x:auto; }

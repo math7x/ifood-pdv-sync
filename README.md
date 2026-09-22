@@ -1,15 +1,15 @@
-# PDV Sync — Saipos, iFood e 99Food
+# PDV Sync — Saipos, iFood, 99Food e Goomer
 
 Extensão para Google Chrome que ajuda a manter os códigos de integração do
 PDV consistentes entre a planilha exportada pela Saipos e os cardápios do
-iFood e do 99Food.
+iFood, do 99Food e da Goomer.
 
 A extensão lê a planilha localmente, compara produtos e complementos pelo
 nome, apresenta as sugestões em uma tela de revisão e só altera o cardápio
 depois da confirmação do usuário. A ideia é reduzir o trabalho manual sem
 eliminar a conferência humana.
 
-> Projeto independente, sem vínculo oficial com Saipos, iFood ou 99Food.
+> Projeto independente, sem vínculo oficial com Saipos, iFood, 99Food ou Goomer.
 
 ## Problema que resolve
 
@@ -25,6 +25,7 @@ A extensão lê a planilha da Saipos, percorre os cardápios do iFood ou do 99Fo
 | --- | --- | --- |
 | iFood | Lê produtos, códigos pai, grupos e opções do Cardápio > PDV | Preenche os códigos selecionados de produtos e complementos |
 | 99Food | Percorre as categorias e compara os produtos com as linhas `PRATO` da planilha | Pesquisa cada produto na aba Itens e salva o Código PDV |
+| Goomer | Lê produtos pai e modelos de opcionais no cardápio aberto | Atualiza códigos PDV depois de revisão, com checagem antes e depois do envio |
 | Saipos | Lê a planilha de integração e consulta as categorias em uma aba aberta | Permite criar, com confirmação individual, produtos ausentes |
 
 Principais recursos:
@@ -42,7 +43,7 @@ Principais recursos:
 
 1. O usuário seleciona a planilha de códigos de integração da Saipos.
 2. A extensão valida as colunas e mantém os dados no armazenamento local do Chrome.
-3. No iFood ou no 99Food, ela percorre o cardápio e reúne os códigos atuais.
+3. No iFood, 99Food ou Goomer, ela percorre o cardápio e reúne os códigos atuais.
 4. Os nomes são normalizados e comparados com as linhas ativas da planilha.
 5. Uma nova aba mostra o que já está correto e o que precisa de revisão.
 6. Somente as linhas selecionadas e confirmadas são enviadas de volta ao portal.
@@ -116,16 +117,34 @@ correção.
 Nesta versão, o 99Food recebe apenas o Código PDV dos produtos. Grupos de
 adicionais e complementos ainda não são alterados.
 
+## Como usar na Goomer
+
+1. Abra o cardápio da Goomer em `dashboard.goomer.app` ou
+   `dashboard-abrahao.goomer.app`.
+2. Abra a extensão, selecione a planilha da Saipos e clique em
+   **Verificar cardápio e sugerir códigos**.
+3. Aguarde a leitura dos produtos pai e dos complementos/modelos de opcionais.
+4. Revise as abas **Produtos pai** e **Complementos**. As sugestões de alta
+   confiança já vêm marcadas; as demais ficam disponíveis para escolha manual.
+5. Se corrigiu códigos pai, aplique esses itens primeiro e faça uma nova
+   leitura antes de revisar complementos.
+6. Clique em **Aplicar selecionados** apenas para os itens conferidos.
+
+A aplicação na Goomer relê o formulário antes de salvar, verifica se o código
+PDV não mudou desde a leitura, envia a atualização e relê o servidor para
+confirmar o valor gravado. Modelos de opcionais compartilhados são gravados
+uma vez; quando aparecem vinculados a vários produtos, exigem seleção manual.
+
 ## Como funciona o casamento de nomes
 
 - O texto da coluna "Complemento" da Saipos é dividido nos hífens; o último
   pedaço vira o "nome núcleo" (ex: de `IF - ADICIONAIS - *ADICIONAL 1/2
   GRANDE- BACON FATIADO*` extrai `BACON FATIADO`), e os pedaços anteriores
   viram uma "dica de grupo" (`ADICIONAIS`).
-- Esse nome núcleo é comparado com o nome de cada opção mostrada no PDV do
-  iFood usando similaridade de texto (coeficiente de Dice sobre bigramas),
+- Esse nome núcleo é comparado com o nome de cada opção mostrada no cardápio
+  usando similaridade de texto (coeficiente de Dice sobre bigramas),
   com um bônus quando um nome contém o outro e outro pequeno bônus quando a
-  dica de grupo bate com o título da seção no iFood (ex: "Escolha o sabor da
+  dica de grupo bate com o título da seção (ex: "Escolha o sabor da
   sua pizza salgada").
 - Score ≥ 0,72 → alta confiança. Entre 0,40 e 0,72 → revisar manualmente.
   Abaixo disso → sem correspondência confiável.
@@ -156,14 +175,19 @@ disponíveis.
 - A aplicação dos códigos exige seleção e confirmação do usuário.
 - A criação de produtos no Saipos exige confirmação separada para cada item.
 
-As permissões ficam restritas aos portais do iFood, 99Food e Saipos, além do
-armazenamento local necessário para levar os dados até a tela de revisão.
+As permissões ficam restritas aos portais do iFood, 99Food, Goomer e Saipos,
+além do armazenamento local necessário para levar os dados até a tela de
+revisão.
 
 ## Limitações e pontos de atenção
 
 - No iFood, a extensão funciona na página `portal.ifood.com.br/menu/list/pdv`.
 - No 99Food, a leitura deve começar na página `merchant-item/menu?tab=store-menu`.
 - No 99Food, esta versão preenche apenas o Código PDV dos produtos; não altera grupos de itens adicionais.
+- Na Goomer, se corrigir códigos pai, faça uma nova leitura antes de aplicar
+  complementos.
+- Na Goomer, modelos de opcionais compartilhados podem afetar outros usos do
+  mesmo modelo.
 - Ela lê a estrutura visual da página atual do portal. Se a iFood atualizar o
   layout do PDV, os seletores no topo de `content.js` (constante
   `IFPS_CONFIG`) podem precisar de ajuste.
@@ -182,7 +206,7 @@ armazenamento local necessário para levar os dados até a tela de revisão.
 - SheetJS para leitura das planilhas;
 - armazenamento local e APIs de abas do Chrome.
 
-Versão atual: `1.3.6`.
+Versão atual: `1.4.1`.
 
 ## Autoria
 

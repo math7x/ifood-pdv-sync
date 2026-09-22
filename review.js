@@ -31,8 +31,20 @@ document.addEventListener('DOMContentLoaded', () => {
   // re-renderizações (só o innerHTML dele muda), então esses listeners não
   // podem ser recriados a cada render() — duplicariam a cada nova rodada.
   document.getElementById('rv-main').addEventListener('change', (ev) => {
+    if (onSectionCheckAllChange(ev)) {
+      updateApplyButtonCount();
+      return;
+    }
     onAltSelectChange(ev);
     onSaiposCategoriaChange(ev);
+    updateSectionMasterCheckboxes();
+    updateApplyButtonCount();
+  });
+
+  document.getElementById('rv-main').addEventListener('input', (ev) => {
+    if (!ev.target.classList.contains('rv-alt-search')) return;
+    onAltSelectChange(ev);
+    updateSectionMasterCheckboxes();
     updateApplyButtonCount();
   });
 
@@ -113,16 +125,30 @@ function escapeHtml(s) {
   }[c]));
 }
 
-function altSelectHtml(row) {
-  if (!row.alternativas || !row.alternativas.length) return '';
-  return `<select class="rv-alt-select" data-rowid="${row.rowId}">
-    <option value="">— manter sugestão / ignorar —</option>
-    ${row.alternativas
-      .map((a) => `<option value="${escapeHtml(a.inputId || '')}" data-optionid="${escapeHtml(a.optionid || '')}">${escapeHtml(a.optionName)}${a.groupHeading ? ' — ' + escapeHtml(a.groupHeading) : ''}</option>`)
-      .join('')}
-  </select>`;
+function rvComplementAlternativeLabel(option) {
+  return `${option.optionName || ''}${option.groupHeading ? ' — ' + option.groupHeading : ''}`;
 }
 
+function rvProdutoAlternativeLabel(option) {
+  return `${option.descricao || ''} — ${option.codigo || ''}`;
+}
+
+function altSelectHtml(row) {
+  if (!row.alternativas || !row.alternativas.length) return '';
+  const listId = `rv-alt-options-${row.rowId}`;
+  return `<input type="search" class="rv-alt-search" data-rowid="${row.rowId}" list="${listId}" placeholder="Pesquisar opção do iFood..." autocomplete="off" />
+  <datalist id="${listId}">
+    ${row.alternativas
+      .map((a) => `<option value="${escapeHtml(rvComplementAlternativeLabel(a))}"></option>`)
+      .join('')}
+  </datalist>`;
+}
+
+function rvSelectAllHeadHtml(checkbox) {
+  return checkbox
+    ? '<input type="checkbox" class="rv-check-all" title="Selecionar toda esta seção" aria-label="Selecionar toda esta seção" />'
+    : '';
+}
 function rowHtml(row, { checkbox, defaultChecked }) {
   const checkCell = checkbox
     ? `<input type="checkbox" class="rv-check" data-rowid="${row.rowId}" ${defaultChecked && row.inputId ? 'checked' : ''} ${row.inputId ? '' : 'disabled'} />`
@@ -136,6 +162,7 @@ function rowHtml(row, { checkbox, defaultChecked }) {
     <td class="rv-categoria">${row.categoriaIfood ? escapeHtml(row.categoriaIfood) : '<span class="rv-parent-code">—</span>'}</td>
     <td class="rv-item-name" title="${escapeHtml(row.itemName)}">${escapeHtml(row.itemName)}${rvInativoTag(row)}<div class="rv-parent-code">código pai ${escapeHtml(row.parentCode)}</div>${row.saiposDescricao ? `<div class="rv-parent-code rv-saipos-desc">Saipos: ${escapeHtml(row.saiposDescricao)}</div>` : ''}</td>
     <td>${escapeHtml(row.saiposNome)}<div class="rv-parent-code">${escapeHtml(row.saiposCodigo)}</div></td>
+    <td class="rv-categoria">${row.saiposCategoria ? escapeHtml(row.saiposCategoria) : '<span class="rv-parent-code">—</span>'}</td>
     <td>${opcao}${checkbox ? altSelectHtml(row) : ''}</td>
     <td>${escapeHtml(row.valorAtual)}</td>
     <td><strong>${escapeHtml(row.novoCodigo)}</strong>${row.duplicataDe ? `<div class="rv-parent-code">código atual já é de "${escapeHtml(row.duplicataDe)}" (linha equivalente na planilha)</div>` : ''}</td>
@@ -146,7 +173,7 @@ function rowHtml(row, { checkbox, defaultChecked }) {
 function tableHtml(rows, { checkbox, defaultChecked }) {
   if (!rows.length) return '<p class="rv-section-hint">Nenhum item nessa categoria.</p>';
   const head = `<thead><tr>
-    <th></th><th>Categoria (iFood)</th><th>Item (iFood)</th><th>Complemento (Saipos)</th><th>Opção sugerida</th><th>Código atual</th><th>Novo código</th><th>Score</th>
+    <th>${rvSelectAllHeadHtml(checkbox)}</th><th>Categoria (iFood)</th><th>Item (iFood)</th><th>Complemento (Saipos)</th><th>Categoria (Excel)</th><th>Opção sugerida</th><th>Código atual</th><th>Novo código</th><th>Score</th>
   </tr></thead>`;
   const body = rows.map((r) => rowHtml(r, { checkbox, defaultChecked })).join('');
   return `<table class="rv-table">${head}<tbody>${body}</tbody></table>`;
@@ -156,12 +183,13 @@ function tableHtml(rows, { checkbox, defaultChecked }) {
 
 function produtoAltSelectHtml(row) {
   if (!row.alternativas || !row.alternativas.length) return '';
-  return `<select class="rv-alt-select" data-rowid="${row.rowId}" data-mode="produto">
-    <option value="">— manter sugestão / ignorar —</option>
+  const listId = `rv-produto-options-${row.rowId}`;
+  return `<input type="search" class="rv-alt-search" data-rowid="${row.rowId}" data-mode="produto" list="${listId}" placeholder="Pesquisar prato ou código Saipos..." autocomplete="off" />
+  <datalist id="${listId}">
     ${row.alternativas
-      .map((a) => `<option value="${escapeHtml(a.codigo || '')}">${escapeHtml(a.descricao)} — ${escapeHtml(a.codigo)}</option>`)
+      .map((a) => `<option value="${escapeHtml(rvProdutoAlternativeLabel(a))}"></option>`)
       .join('')}
-  </select>`;
+  </datalist>`;
 }
 
 // Botão/selo que aparece na coluna do prato sugerido, só nos buckets "média"
@@ -193,6 +221,7 @@ function produtoRowHtml(row, { checkbox, defaultChecked, showSaiposAction }) {
     <td class="rv-categoria">${row.categoriaIfood ? escapeHtml(row.categoriaIfood) : '<span class="rv-parent-code">—</span>'}</td>
     <td class="rv-item-name" title="${escapeHtml(row.itemName)}">${escapeHtml(row.itemName)}${rvInativoTag(row)}</td>
     <td>${row.codigoAtual ? escapeHtml(row.codigoAtual) : '<span class="rv-parent-code">(vazio)</span>'}</td>
+    <td class="rv-categoria" data-produto-categoria="${row.rowId}">${row.pratoCategoria ? escapeHtml(row.pratoCategoria) : '<span class="rv-parent-code">—</span>'}</td>
     <td>${prato}${checkbox ? produtoAltSelectHtml(row) : ''}${showSaiposAction ? saiposInlineActionHtml(row) : ''}</td>
     <td>${row.score.toFixed(2)}<div class="rv-status" data-status-for="${row.rowId}"></div></td>
   </tr>`;
@@ -201,7 +230,7 @@ function produtoRowHtml(row, { checkbox, defaultChecked, showSaiposAction }) {
 function produtoTableHtml(rows, { checkbox, defaultChecked, showSaiposAction }) {
   if (!rows.length) return '<p class="rv-section-hint">Nenhum item nessa categoria.</p>';
   const head = `<thead><tr>
-    <th></th><th>Categoria (iFood)</th><th>Item (iFood)</th><th>Código pai atual</th><th>Prato Saipos (nome sugerido / código)</th><th>Score</th>
+    <th>${rvSelectAllHeadHtml(checkbox)}</th><th>Categoria (iFood)</th><th>Item (iFood)</th><th>Código pai atual</th><th>Categoria (Excel)</th><th>Prato Saipos (nome sugerido / código)</th><th>Score</th>
   </tr></thead>`;
   const body = rows.map((r) => produtoRowHtml(r, { checkbox, defaultChecked, showSaiposAction })).join('');
   return `<table class="rv-table">${head}<tbody>${body}</tbody></table>`;
@@ -607,37 +636,76 @@ function setActiveTab(tab) {
 }
 
 function onAltSelectChange(ev) {
-  if (!ev.target.classList.contains('rv-alt-select')) return;
+  if (!ev.target.classList.contains('rv-alt-search')) return;
   const rowId = Number(ev.target.dataset.rowid);
   const row = rvRowsById.get(rowId);
   const tr = ev.target.closest('tr');
-  const checkbox = tr.querySelector('.rv-check');
+  const checkbox = tr && tr.querySelector('.rv-check');
+  if (!row || !checkbox) return;
+
+  const typed = String(ev.target.value || '').trim();
+  const typedLower = typed.toLocaleLowerCase('pt-BR');
 
   if (ev.target.dataset.mode === 'produto') {
     // Nas linhas de "produtos pai" todas as alternativas apontam pro MESMO
     // campo (o código pai do item) — só o código sugerido muda, o inputId
     // continua sendo sempre o campo próprio do item.
-    if (ev.target.value) {
-      row.novoCodigo = ev.target.value;
+    const selected = (row.alternativas || []).find((a) => {
+      return rvProdutoAlternativeLabel(a).toLocaleLowerCase('pt-BR') === typedLower
+        || String(a.codigo || '').toLocaleLowerCase('pt-BR') === typedLower;
+    });
+    if (selected) {
+      row.novoCodigo = String(selected.codigo || '').trim();
+      row.pratoNome = selected.descricao || row.pratoNome;
+      row.pratoCategoria = selected.categoria || '';
+      const categoryEl = tr.querySelector(`[data-produto-categoria="${row.rowId}"]`);
+      if (categoryEl) categoryEl.innerHTML = row.pratoCategoria ? escapeHtml(row.pratoCategoria) : '<span class="rv-parent-code">—</span>';
       const mudou = row.novoCodigo !== row.codigoAtual;
       checkbox.disabled = !mudou;
       checkbox.checked = mudou;
     } else {
       checkbox.checked = false;
+      checkbox.disabled = true;
     }
     return;
   }
 
-  if (ev.target.value) {
-    row.inputId = ev.target.value;
-    row.optionid = ev.target.selectedOptions[0] ? ev.target.selectedOptions[0].dataset.optionid || null : null;
-    checkbox.disabled = false;
-    checkbox.checked = true;
+  const selected = (row.alternativas || []).find((a) => rvComplementAlternativeLabel(a).toLocaleLowerCase('pt-BR') === typedLower);
+  if (selected) {
+    row.inputId = selected.inputId || '';
+    row.optionid = selected.optionid || null;
+    checkbox.disabled = !row.inputId;
+    checkbox.checked = !!row.inputId;
   } else {
     checkbox.checked = false;
+    checkbox.disabled = true;
   }
 }
 
+function onSectionCheckAllChange(ev) {
+  if (!ev.target.classList.contains('rv-check-all')) return false;
+  const table = ev.target.closest('table');
+  if (!table) return true;
+  table.querySelectorAll('.rv-check:not(:disabled)').forEach((checkbox) => {
+    checkbox.checked = ev.target.checked;
+  });
+  updateSectionMasterCheckboxes();
+  return true;
+}
+
+function updateSectionMasterCheckboxes() {
+  const isApplying = !!window._rvApplyTotal;
+  document.querySelectorAll('.rv-check-all').forEach((master) => {
+    const table = master.closest('table');
+    const checkboxes = table ? [...table.querySelectorAll('.rv-check:not(:disabled)')] : [];
+    const checked = checkboxes.filter((checkbox) => checkbox.checked).length;
+    const allChecked = checkboxes.length > 0 && checked === checkboxes.length;
+    master.disabled = isApplying || checkboxes.length === 0;
+    master.checked = allChecked;
+    master.indeterminate = checked > 0 && !allChecked;
+    master.title = allChecked ? 'Desmarcar esta seção' : 'Selecionar toda esta seção';
+  });
+}
 // Só os checkboxes marcados dentro da aba ATUALMENTE visível (Complementos
 // ou Produtos pai) — os da outra aba ficam de fora da contagem e do botão
 // "Aplicar", mesmo que continuem marcados por baixo (você não perde a
@@ -652,6 +720,7 @@ function updateApplyButtonCount() {
   const btn = document.getElementById('rv-btn-apply');
   btn.textContent = checked ? `⚠️ Aplicar selecionados (${checked})` : '⚠️ Aplicar selecionados';
   btn.disabled = checked === 0;
+  updateSectionMasterCheckboxes();
 }
 
 document.getElementById('rv-btn-apply').addEventListener('click', () => {
@@ -679,6 +748,7 @@ document.getElementById('rv-btn-apply').addEventListener('click', () => {
   btn.textContent = `Aplicando 0/${rows.length}...`;
   window._rvApplyTotal = rows.length;
   window._rvApplyDone = 0;
+  updateSectionMasterCheckboxes();
 
   checked.forEach((cb) => {
     const row = rvRowsById.get(Number(cb.dataset.rowid));
@@ -768,18 +838,18 @@ function finishApply() {
 document.getElementById('rv-btn-export').addEventListener('click', () => {
   if (!rvData) return;
   const lines = [
-    ['Tipo', 'Categoria iFood', 'Item', 'Código Pai', 'Complemento Saipos', 'Código Saipos', 'Opção iFood', 'Grupo iFood', 'Valor Atual', 'Novo Código', 'Confiança', 'Score'].join(';'),
+    ['Tipo', 'Categoria iFood', 'Item', 'Código Pai', 'Categoria Excel', 'Complemento/Prato Saipos', 'Código Saipos', 'Opção iFood', 'Grupo iFood', 'Valor Atual', 'Novo Código', 'Confiança', 'Score'].join(';'),
   ];
   for (const r of rvData.rows) {
     lines.push(
-      ['complemento', r.categoriaIfood || '', r.itemName, r.parentCode, r.saiposNome, r.saiposCodigo, r.opcaoIfood || '', r.grupoIfood, r.valorAtual, r.novoCodigo, r.confidence, r.score.toFixed(3)]
+      ['complemento', r.categoriaIfood || '', r.itemName, r.parentCode, r.saiposCategoria || '', r.saiposNome, r.saiposCodigo, r.opcaoIfood || '', r.grupoIfood, r.valorAtual, r.novoCodigo, r.confidence, r.score.toFixed(3)]
         .map((v) => '"' + String(v).replace(/"/g, '""') + '"')
         .join(';')
     );
   }
   for (const r of rvData.produtosPai || []) {
     lines.push(
-      ['produto pai', r.categoriaIfood || '', r.itemName, r.codigoAtual, r.pratoNome || '', r.novoCodigo || '', '', '', r.codigoAtual, r.novoCodigo, r.confidence, r.score.toFixed(3)]
+      ['produto pai', r.categoriaIfood || '', r.itemName, r.codigoAtual, r.pratoCategoria || '', r.pratoNome || '', r.novoCodigo || '', '', '', r.codigoAtual, r.novoCodigo, r.confidence, r.score.toFixed(3)]
         .map((v) => '"' + String(v).replace(/"/g, '""') + '"')
         .join(';')
     );

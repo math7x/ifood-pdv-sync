@@ -145,11 +145,11 @@ function ifps99IsActiveSheetRow(row) {
 // No 99Food, produtos e pratos são comparados diretamente. Se os dois nomes
 // informam volume, ele precisa ser exatamente o mesmo: 350 ml nunca pode
 // receber o código de 2 litros, nem 500 ml o código de 1 litro.
-function ifps99ScoreProduto(itemName, pratoDescricao) {
+function ifps99ScoreProduto(itemName, pratoDescricao, itemCategory, pratoCategory) {
   const itemVolume = ifpsExtractVolumeMl(itemName);
   const pratoVolume = ifpsExtractVolumeMl(pratoDescricao);
   if (itemVolume != null && pratoVolume != null && itemVolume !== pratoVolume) return 0;
-  const baseScore = ifpsScoreProduto(itemName, pratoDescricao);
+  const baseScore = ifpsScoreProdutoComCategoria(itemName, pratoDescricao, itemCategory, pratoCategory);
   return baseScore + (itemVolume != null && pratoVolume != null ? 0.3 : 0);
 }
 
@@ -263,7 +263,7 @@ function ifps99MatchProducts(items, saiposRowsRaw) {
 
   const produtosPai = items.map((item) => {
     const scored = pratoRows
-      .map((row) => ({ row, score: ifps99ScoreProduto(item.itemName, row['Descrição']) }))
+      .map((row) => ({ row, score: ifps99ScoreProduto(item.itemName, row['Descrição'], item.categoryName, row['Categoria']) }))
       .sort((a, b) => b.score - a.score);
     const best = scored[0] || null;
     const chosen = best && best.score >= IFPS_CONFIDENCE.MEDIUM ? best.row : null;
@@ -272,7 +272,7 @@ function ifps99MatchProducts(items, saiposRowsRaw) {
     const pratoAtual = codigoAtual
       ? pratoRows.find((row) => String(row['Código Saipos'] || '').trim().toLowerCase() === codigoAtual.toLowerCase()) || null
       : null;
-    const scoreAtual = pratoAtual ? ifps99ScoreProduto(item.itemName, pratoAtual['Descrição']) : 0;
+    const scoreAtual = pratoAtual ? ifps99ScoreProduto(item.itemName, pratoAtual['Descrição'], item.categoryName, pratoAtual['Categoria']) : 0;
     const atualCoerente = item.codigoAtualLido && codigoAtual && pratoAtual && scoreAtual >= IFPS_CONFIDENCE.MEDIUM;
     if (atualCoerente) {
       jaCorretos++;
@@ -285,6 +285,7 @@ function ifps99MatchProducts(items, saiposRowsRaw) {
       .map((entry) => ({
         codigo: String(entry.row['Código Saipos'] || '').trim(),
         descricao: entry.row['Descrição'] || '',
+        categoria: entry.row['Categoria'] || '',
       }))
       .filter((entry) => entry.codigo)
       .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
@@ -301,6 +302,7 @@ function ifps99MatchProducts(items, saiposRowsRaw) {
       pratoAtualNome: pratoAtual ? pratoAtual['Descrição'] || '' : '',
       scoreAtual: ifpsDisplayScore(scoreAtual),
       pratoNome: chosen ? chosen['Descrição'] || '' : '',
+      pratoCategoria: chosen ? chosen['Categoria'] || '' : '',
       novoCodigo,
       inputId: novoCodigo ? '99food-pdv' : '',
       itemid: '',
@@ -322,6 +324,7 @@ function ifps99MatchProducts(items, saiposRowsRaw) {
       .map((row) => ({
         codigo: String(row['Código Saipos'] || '').trim(),
         descricao: String(row['Descrição'] || '').trim(),
+        categoria: String(row['Categoria'] || '').trim(),
       }))
       .filter((row, index, all) => row.codigo && all.findIndex((other) => other.codigo.toLowerCase() === row.codigo.toLowerCase()) === index)
       .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR')),

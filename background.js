@@ -11,6 +11,38 @@
 
 let ifpsReviewTabId = null;
 
+// Goomer usa um iframe. Cada revisão guarda a aba E o frame de origem,
+// nunca procura outra loja como alternativa quando a aba original desaparece.
+chrome.runtime.onMessage.addListener((msg, sender, respond) => {
+  if (msg.type === 'GOOMER_OPEN') {
+    if (!sender.tab || !/^https:\/\/[^/]+\.dashboard-abrahao\.goomer\.app\/cardapio\//.test(sender.url || '')) return false;
+    chrome.storage.local.set({ ['goomer:' + msg.id]: {
+      id: msg.id, tabId: sender.tab.id, frameId: sender.frameId, origin: new URL(sender.url).origin,
+      status: 'Lendo o cardápio…', rows: [], busy: true
+    }}).then(() => chrome.tabs.create({url: chrome.runtime.getURL('review-goomer.html?id=' + encodeURIComponent(msg.id))}))
+      .then(() => respond({ok:true}), e => respond({error:e.message}));
+    return true;
+  }
+  if (msg.type === 'GOOMER_APPLY') {
+    if (!String(sender.url || '').startsWith(chrome.runtime.getURL('review-goomer.html') + '?')) return false;
+    (async () => {
+      const key = 'goomer:' + msg.id;
+      const saved = (await chrome.storage.local.get(key))[key];
+      if (!saved) throw new Error('Revisão expirada. Leia o cardápio novamente.');
+      await chrome.storage.local.set({[key]: {...saved, busy:true, status:'Aplicando no cardápio da Goomer…'}});
+      chrome.tabs
+        .sendMessage(saved.tabId, {type:'GOOMER_APPLY_FRAME', id:msg.id, changes:msg.changes}, {frameId:saved.frameId})
+        .catch(async e => {
+          const current = (await chrome.storage.local.get(key))[key] || saved;
+          await chrome.storage.local.set({[key]: {...current, busy:false, status:e.message || 'Falha ao enviar aplicação para a aba da Goomer.'}});
+        });
+      return {ok:true};
+    })().then(respond, e => respond({error:e.message}));
+    return true;
+  }
+  return false;
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'IFPS_OPEN_REVIEW') {
     handleOpenReview(msg, sender)

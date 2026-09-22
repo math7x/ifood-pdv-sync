@@ -43,6 +43,7 @@ function rowHtml99(row, defaultChecked) {
     <td><input type="checkbox" class="rv-check" data-rowid="${row.rowId}" ${defaultChecked && canApply ? 'checked' : ''} ${canApply ? '' : 'disabled'} /></td>
     <td class="rv-categoria">${escapeHtml99(row.categoria99 || row.categoriaIfood || '')}</td>
     <td class="rv-item-name">${escapeHtml99(row.itemName)}${row.itemInativo ? ' <span class="rv-inativo-tag">🔕 indisponível</span>' : ''}</td>
+    <td class="rv-categoria" data-suggestion-category="${row.rowId}">${row.pratoCategoria ? escapeHtml99(row.pratoCategoria) : '<span class="rv-parent-code">—</span>'}</td>
     <td>${currentPdv}<div class="rv-suggestion-name" data-suggestion-name="${row.rowId}">${row.pratoNome ? escapeHtml99(row.pratoNome) : '<span class="rv-parent-code">nenhum prato confiável encontrado</span>'}</div><div class="rv-parent-code" data-suggestion-code="${row.rowId}">${row.novoCodigo ? `Sugestão: ${escapeHtml99(row.novoCodigo)}` : ''}</div>${manualSearch99(row)}</td>
     <td>${Number(row.score || 0).toFixed(2)}<div class="rv-status" data-status-for="${row.rowId}"></div></td>
   </tr>`;
@@ -50,7 +51,7 @@ function rowHtml99(row, defaultChecked) {
 
 function tableHtml99(rows, defaultChecked) {
   if (!rows.length) return '<p class="rv-section-hint">Nenhum produto nessa faixa.</p>';
-  return `<table class="rv-table"><thead><tr><th><input type="checkbox" class="rv-check-all" title="Selecionar todos de todas as categorias" aria-label="Selecionar todos de todas as categorias" /></th><th>Categoria (99Food)</th><th>Produto (99Food)</th><th>Prato Saipos / Código PDV</th><th>Score</th></tr></thead>
+  return `<table class="rv-table"><thead><tr><th><input type="checkbox" class="rv-check-all" title="Selecionar todos de todas as categorias" aria-label="Selecionar todos de todas as categorias" /></th><th>Categoria (99Food)</th><th>Produto (99Food)</th><th>Categoria (Excel)</th><th>Prato Saipos / Código PDV</th><th>Score</th></tr></thead>
     <tbody>${rows.map((row) => rowHtml99(row, defaultChecked)).join('')}</tbody></table>`;
 }
 
@@ -134,11 +135,14 @@ function onAlternativeSearch99(event) {
 
   row.novoCodigo = selected.codigo;
   row.pratoNome = selected.descricao;
+  row.pratoCategoria = selected.categoria || '';
   event.target.value = manualOptionLabel99(selected);
   const suggestionName = tr.querySelector(`[data-suggestion-name="${row.rowId}"]`);
   const suggestionCode = tr.querySelector(`[data-suggestion-code="${row.rowId}"]`);
+  const suggestionCategory = tr.querySelector(`[data-suggestion-category="${row.rowId}"]`);
   if (suggestionName) suggestionName.textContent = selected.descricao;
   if (suggestionCode) suggestionCode.textContent = `Escolhido manualmente: ${selected.codigo}`;
+  if (suggestionCategory) suggestionCategory.innerHTML = row.pratoCategoria ? escapeHtml99(row.pratoCategoria) : '<span class="rv-parent-code">—</span>';
   checkbox.disabled = false;
   checkbox.checked = true;
   updateApplyCount99();
@@ -273,9 +277,9 @@ function finishApply99() {
 
 document.getElementById('rv-btn-export').addEventListener('click', () => {
   if (!rv99Data) return;
-  const csvRows = [['Categoria 99Food', 'Produto 99Food', 'Prato Saipos sugerido', 'Código PDV', 'Confiança', 'Score']];
+  const csvRows = [['Categoria 99Food', 'Produto 99Food', 'Categoria Excel', 'Prato Saipos sugerido', 'Código PDV', 'Confiança', 'Score']];
   for (const row of rv99Data.produtosPai || []) {
-    csvRows.push([row.categoria99 || '', row.itemName, row.pratoNome || '', row.novoCodigo || '', row.confidence, Number(row.score || 0).toFixed(3)]);
+    csvRows.push([row.categoria99 || '', row.itemName, row.pratoCategoria || '', row.pratoNome || '', row.novoCodigo || '', row.confidence, Number(row.score || 0).toFixed(3)]);
   }
   const csv = '\ufeff' + csvRows.map((cols) => cols.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(';')).join('\r\n');
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));

@@ -44,15 +44,37 @@ function ifpsParseComplementoField(raw) {
   return { core, hint, original };
 }
 
+const IFPS_SIZE_TAG_ALIASES = new Map([
+  ['P', 'PQ'],
+  ['PQ', 'PQ'],
+  ['PEQ', 'PQ'],
+  ['M', 'MD'],
+  ['MD', 'MD'],
+  ['MED', 'MD'],
+  ['G', 'GR'],
+  ['GR', 'GR'],
+  ['GG', 'GG'],
+  ['F', 'FM'],
+  ['FM', 'FM'],
+]);
+
+function ifpsCanonicalSizeTag(tag) {
+  const norm = ifpsStripAccents(String(tag || '')).toUpperCase();
+  return IFPS_SIZE_TAG_ALIASES.get(norm) || norm;
+}
+
 // Marca curta de tamanho colada por hífen no começo (planilha Saipos, depois
-// do ajuste acima: "GG-BORDA CHEDDAR") ou no fim (opção do iFood: "Borda
-// Cheddar-Pq"). Usada só pra desempate — ver ifpsScoreMatch.
+// do ajuste acima: "GG-BORDA CHEDDAR"), no fim (opção do iFood: "Borda
+// Cheddar-Pq") ou entre parênteses no produto ("Marmitex Cupim (M)"). Usada
+// só pra desempate — ver ifpsScoreMatch e ifpsScoreProduto.
 function ifpsExtractSizeTag(s) {
   const str = String(s || '').trim();
   const front = /^([A-Za-zÀ-ÿ]{1,3})-/.exec(str);
-  if (front) return ifpsStripAccents(front[1]).toUpperCase();
+  if (front) return ifpsCanonicalSizeTag(front[1]);
   const back = /-([A-Za-zÀ-ÿ]{1,3})$/.exec(str);
-  if (back) return ifpsStripAccents(back[1]).toUpperCase();
+  if (back) return ifpsCanonicalSizeTag(back[1]);
+  const paren = /\(([A-Za-zÀ-ÿ]{1,3})\)/.exec(str);
+  if (paren) return ifpsCanonicalSizeTag(paren[1]);
   return '';
 }
 
@@ -116,6 +138,8 @@ const IFPS_ABBREVIATIONS = [
   [/\bOITO\b/g, '8'],
   [/\bNOVE\b/g, '9'],
   [/\bDEZ\b/g, '10'],
+  [/\bH2OH\b/g, 'H2O'],
+  [/\bLIMONETO\b/g, 'LIMAO'],
 ];
 
 function ifpsNormalize(s) {
@@ -249,12 +273,25 @@ function ifpsExtractVolumeMl(text) {
 // (ex: "GUARANA", "SODA", "COCA", "LARANJA").
 const IFPS_GENERIC_WORDS = new Set([
   'REFRIGERANTE', 'REFRI', 'ANTARCTICA', 'LATA', 'GARRAFA', 'PET', 'LITROS', 'LITRO', 'ML', 'COM', 'SEM', 'DE', 'DA', 'DO', 'L',
+  'PESSOA', 'PESSOAS', 'NOITE', 'AGUA', 'AGUAS', 'SABOR', 'SABORIZADA',
+  'SUCO', 'SUCOS', 'SUMO', 'SUMOS', 'NATURAL', 'NATURAIS',
 ]);
 
 function ifpsSignificantWords(text) {
   return ifpsNormalize(text)
     .split(' ')
     .filter((w) => w.length >= 3 && !IFPS_GENERIC_WORDS.has(w) && !/^\d+$/.test(w));
+}
+
+// Quantidade servida no nome do prato: "P/ 2 pessoas", "para 3 pessoas",
+// "P 1 pessoa". Isso precisa ser comparado como dado estruturado, porque o
+// número costuma ser a única diferença entre produtos quase idênticos.
+function ifpsExtractServingCount(text) {
+  const norm = ifpsNormalize(text);
+  const m = /\b(?:P|PARA)?\s*(\d{1,2})\s+PESSOAS?\b/.exec(norm);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 // Calcula o score final entre um complemento do Saipos (já parseado) e uma opção do iFood.
@@ -343,6 +380,43 @@ function ifpsDisplayScore(score) {
   return Math.max(0, Math.min(score, 1));
 }
 
+const IFPS_PRODUCT_CATEGORY_KEYWORDS = [
+  ['espetinho', /\b(ESPETINHOS?|ESPETOS?)\b/],
+  ['porcao', /\b(PORCAO|PORCOES)\b/],
+  ['suco', /\b(SUCOS?|SUMOS?)\b/],
+  ['batida', /\b(BATIDAS?)\b/],
+  ['bebida', /\b(BEBIDAS?|REFRIGERANTES?|AGUAS?|CERVEJAS?)\b/],
+  ['refeicao', /\b(REFEICOES?|PRATOS?\s+EXECUTIVOS?)\b/],
+  ['marmitex', /\b(MARMITEX|MARMITAS?)\b/],
+  ['adicional', /\b(ADICIONAIS?|EXTRAS?)\b/],
+  ['lanche', /\b(LANCHES?|SANDUICHES?)\b/],
+  ['hotdog', /\b(HOT\s+DOG|DOGS?)\b/],
+  ['pizza', /\b(PIZZAS?)\b/],
+  ['isca', /\b(ISCAS?)\b/],
+  ['caldo', /\b(CALDOS?)\b/],
+];
+
+function ifpsProductCategoryOf(text) {
+  const norm = ifpsNormalize(text);
+  for (const [key, re] of IFPS_PRODUCT_CATEGORY_KEYWORDS) {
+    if (re.test(norm)) return key;
+  }
+  return '';
+}
+
+function ifpsScoreProdutoCategoria(pdvCategory, excelCategory) {
+  const pdv = ifpsProductCategoryOf(pdvCategory);
+  const excel = ifpsProductCategoryOf(excelCategory);
+  if (pdv && excel) return pdv === excel ? 0.3 : -0.55;
+
+  const pdvNorm = ifpsNormalize(pdvCategory);
+  const excelNorm = ifpsNormalize(excelCategory);
+  if (!pdvNorm || !excelNorm) return 0;
+  if (pdvNorm === excelNorm) return 0.2;
+  if (pdvNorm.includes(excelNorm) || excelNorm.includes(pdvNorm)) return 0.12;
+  return 0;
+}
+
 // Score entre o NOME DO ITEM no iFood e a Descrição de uma linha tipo PRATO
 // da planilha Saipos — usado pra comparar o "código pai" que você já digitou
 // no campo do item com o produto que a planilha diz que aquele código é.
@@ -380,7 +454,27 @@ function ifpsScoreProduto(itemName, pratoDescricao) {
     score += itemSize === pratoSize ? 0.15 : -0.6;
   }
 
+  const itemServes = ifpsExtractServingCount(itemName);
+  const pratoServes = ifpsExtractServingCount(pratoDescricao);
+  if (itemServes != null && pratoServes != null) {
+    score += itemServes === pratoServes ? 0.25 : -0.9;
+  }
+
+  const itemVol = ifpsExtractVolumeMl(itemName);
+  const pratoVol = ifpsExtractVolumeMl(pratoDescricao);
+  if (itemVol != null && pratoVol != null) {
+    score += itemVol === pratoVol ? 0.25 : -0.9;
+  }
+
   return Math.max(0, score);
+}
+
+function ifpsScoreProdutoComCategoria(itemName, pratoDescricao, pdvCategory, excelCategory) {
+  const item = String(itemName || '').trim();
+  const category = String(pdvCategory || '').trim();
+  const combined = category && ifpsNormalize(category) !== ifpsNormalize(item) ? `${category} ${item}` : item;
+  const nameScore = Math.max(ifpsScoreProduto(item, pratoDescricao), ifpsScoreProduto(combined, pratoDescricao));
+  return Math.max(0, nameScore + ifpsScoreProdutoCategoria(pdvCategory, excelCategory));
 }
 
 const IFPS_CONFIDENCE = {
