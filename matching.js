@@ -298,10 +298,15 @@ function ifpsExtractServingCount(text) {
 // groupHeading é o texto do cabeçalho do grupo de complementos no iFood (ex: "Escolha o sabor da sua pizza salgada").
 function ifpsScoreMatch(saiposParsed, ifoodOptionName, groupHeading, itemSizeTag) {
   const matchCore = ifpsExpandDessertColorShorthand(saiposParsed.core, saiposParsed.hint);
-  let score = ifpsDiceCoefficient(matchCore, ifoodOptionName);
-  score += ifpsContainmentBonus(matchCore, ifoodOptionName);
+  const optionWithGroup = groupHeading && ifpsNormalize(groupHeading) !== ifpsNormalize(ifoodOptionName)
+    ? `${groupHeading} ${ifoodOptionName}`
+    : ifoodOptionName;
+  let score = Math.max(
+    ifpsDiceCoefficient(matchCore, ifoodOptionName) + ifpsContainmentBonus(matchCore, ifoodOptionName),
+    ifpsDiceCoefficient(matchCore, optionWithGroup) + ifpsContainmentBonus(matchCore, optionWithGroup)
+  );
 
-  const saiposCat = ifpsCategoryOf(saiposParsed.hint);
+  const saiposCat = ifpsCategoryOf(saiposParsed.hint) || ifpsCategoryOf(saiposParsed.original) || ifpsCategoryOf(saiposParsed.core);
   const ifoodCat = ifpsCategoryOf(groupHeading);
   if (saiposCat && ifoodCat) {
     // As duas categorias deram pra reconhecer por palavra-chave — sinal

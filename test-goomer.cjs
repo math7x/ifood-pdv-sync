@@ -112,6 +112,16 @@ const assert=require('node:assert/strict');
  assert.equal(pizzaFlavor.code,'x.23327486');
  assert.equal(pizzaFlavor.confidence,'correto');
  assert.equal(pizzaFlavor.suggested,'IFOOD - SABORES PIZZAS - CONFETE');
+ const addByGroup=await page.evaluate(()=>GoomerMatching.match(
+  {id:'template:add:1',kind:'template',name:'Picanha',current:'',group:'Adicionais',contexts:[{id:'add:1',name:'Combo Hot dog + batata P + Coca Cola 200ml',code:'141906530',category1:'Combos',category2:'Combo Hot dog + batata P + Coca Cola 200ml',category:'Combo Hot dog + batata P + Coca Cola 200ml'}]},
+  GoomerMatching.catalogs([
+   {Tipo:'PRATO',Categoria:'COMBOS','Código Saipos':'141906530','Descrição':'HOT DOG + BATATA P + COCA COLA 200ML'},
+   {Tipo:'COMPLEMENTO',Categoria:'ADICIONAIS','Código Saipos':'141906530.204',Complemento:'ADICIONAL PICANHA'},
+   {Tipo:'COMPLEMENTO',Categoria:'ADICIONAIS','Código Saipos':'141906530.205',Complemento:'ADICIONAL MIGNON'}
+  ])
+ ));
+ assert.equal(addByGroup.code,'x.204');
+ assert.equal(addByGroup.confidence,'alta');
  const corona=await page.evaluate(()=>GoomerMatching.match(
   {id:'parent:5:1',kind:'parent',name:'Corona Long Neck Zero 330ml',current:'33943144',contexts:[{id:'5:1',name:'Corona Long Neck Zero 330ml',code:'33943144',category1:'Cervejas',category2:'CERVEJAS LONG NECK',category:'CERVEJAS LONG NECK'}]},
   GoomerMatching.catalogs([
